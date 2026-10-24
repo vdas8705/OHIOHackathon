@@ -247,7 +247,7 @@ class LLMService:
 
     def _chat_gemini_with_url(self, system: str, user: str, fetch_url: str) -> str:
         """Call Gemini with a URL context part — Gemini fetches the page itself."""
-        model = self.settings.gemini_model
+        model = self.settings.gemini_fetch_model
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model}:generateContent?key={self.settings.gemini_api_key}"

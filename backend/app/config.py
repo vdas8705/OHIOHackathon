@@ -31,7 +31,9 @@ class Settings:
 
         # Google Gemini
         self.gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
-        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash").strip()
+        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest").strip()
+        # Separate model for URL fetching — needs stronger reasoning, can be slower
+        self.gemini_fetch_model: str = os.getenv("GEMINI_FETCH_MODEL", self.gemini_model).strip()
 
         self.llm_timeout_seconds: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
         self.llm_max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "2"))
