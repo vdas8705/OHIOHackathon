@@ -186,6 +186,17 @@ class PerformanceReport(BaseModel):
 # --------------------------------------------------------------------------- #
 # API request / response contracts
 # --------------------------------------------------------------------------- #
+class FetchJobRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+
+
+class FetchJobResponse(BaseModel):
+    company: str
+    job_title: str
+    job_description: str
+    company_info: str
+
+
 class CreateSimulationRequest(BaseModel):
     company: str = Field(min_length=1, max_length=200)
     job_title: str = Field(min_length=1, max_length=200)

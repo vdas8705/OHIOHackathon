@@ -82,6 +82,13 @@ export interface CreateSimulationInput {
   website_url: string;
 }
 
+export interface FetchJobResponse {
+  company: string;
+  job_title: string;
+  job_description: string;
+  company_info: string;
+}
+
 export interface DemoSample extends CreateSimulationInput {
   example_responses: Record<string, string>;
 }

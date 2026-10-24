@@ -2,6 +2,7 @@ import type {
   ClarifyResponse,
   CreateSimulationInput,
   DemoSample,
+  FetchJobResponse,
   HealthInfo,
   PerformanceReport,
   SimulationState,
@@ -32,6 +33,12 @@ export const api = {
   health: () => request<HealthInfo>("/health"),
 
   demoSample: () => request<DemoSample>("/demo-sample"),
+
+  fetchJob: (url: string) =>
+    request<FetchJobResponse>("/fetch-job", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
 
   createSimulation: (input: CreateSimulationInput) =>
     request<SimulationState>("/simulations", {

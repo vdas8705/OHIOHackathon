@@ -17,6 +17,8 @@ from .models import (
     ClarifyRequest,
     ClarifyResponse,
     CreateSimulationRequest,
+    FetchJobRequest,
+    FetchJobResponse,
     PublicScenario,
     RespondRequest,
     RespondResponse,
@@ -91,6 +93,22 @@ def demo_sample() -> dict:
         "website_url": "",
         "example_responses": DEMO_EXAMPLE_RESPONSES,
     }
+
+
+@app.post("/api/fetch-job", response_model=FetchJobResponse)
+def fetch_job(req: FetchJobRequest) -> FetchJobResponse:
+    """Fetch a job posting URL and extract structured fields using the LLM."""
+    if engine.demo_mode or not engine.llm.available:
+        raise HTTPException(
+            status_code=503,
+            detail="Job URL extraction requires a live LLM — no API key is configured.",
+        )
+    try:
+        from .llm import LLMError  # local import to avoid circular import at module level
+        result = engine.llm.fetch_job(req.url)
+    except Exception as exc:  # includes LLMError and network errors
+        raise HTTPException(status_code=422, detail=str(exc))
+    return FetchJobResponse(**result)
 
 
 @app.post("/api/simulations", response_model=SimulationStateResponse)

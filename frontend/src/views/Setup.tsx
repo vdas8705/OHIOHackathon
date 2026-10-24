@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Sparkles, Loader2, GitBranch } from "lucide-react";
+import { ArrowLeft, Sparkles, Loader2, GitBranch, Link2 } from "lucide-react";
 import { Button, Panel, Badge } from "../components/ui";
 import { api } from "../api";
 import type { CreateSimulationInput, HealthInfo } from "../types";
@@ -22,12 +22,47 @@ export default function Setup({ onBack, onCreated, health }: Props) {
   const [form, setForm] = useState<CreateSimulationInput>(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [urlFetched, setUrlFetched] = useState(false);
 
   const update =
     (field: keyof CreateSimulationInput) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setForm((f) => ({ ...f, [field]: e.target.value }));
+      // If the user edits the URL field reset the fetched state
+      if (field === "website_url") {
+        setUrlFetched(false);
+        setFetchError(null);
+      }
+    };
+
+  async function fetchFromUrl() {
+    const url = form.website_url.trim();
+    if (!url) {
+      setFetchError("Paste a job posting URL first.");
+      return;
+    }
+    setFetchError(null);
+    setFetching(true);
+    try {
+      const result = await api.fetchJob(url);
+      setForm((f) => ({
+        ...f,
+        company: result.company || f.company,
+        job_title: result.job_title || f.job_title,
+        job_description: result.job_description || f.job_description,
+        company_info: result.company_info || f.company_info,
+      }));
+      setErrors({});
+      setUrlFetched(true);
+    } catch (e) {
+      setFetchError((e as Error).message);
+    } finally {
+      setFetching(false);
+    }
+  }
 
   async function loadDemo() {
     try {
@@ -40,6 +75,8 @@ export default function Setup({ onBack, onCreated, health }: Props) {
         website_url: sample.website_url,
       });
       setErrors({});
+      setUrlFetched(false);
+      setFetchError(null);
     } catch (e) {
       setServerError((e as Error).message);
     }
@@ -95,6 +132,9 @@ export default function Setup({ onBack, onCreated, health }: Props) {
     );
   }
 
+  const hasManualData =
+    form.company.trim() || form.job_title.trim() || form.job_description.trim();
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <div className="mb-8 flex items-center justify-between">
@@ -109,8 +149,8 @@ export default function Setup({ onBack, onCreated, health }: Props) {
 
       <h1 className="text-3xl font-bold">Set up your simulation</h1>
       <p className="mt-2 text-slate-400">
-        Tell us about the role. The job description is the primary source for
-        your scenario, so paste the full posting.
+        Paste a job posting link and we'll pull everything automatically — or
+        fill in the fields yourself.
       </p>
 
       {health?.demo_mode && (
@@ -123,12 +163,59 @@ export default function Setup({ onBack, onCreated, health }: Props) {
 
       <Panel className="mt-6 p-6">
         <form onSubmit={submit} className="space-y-5">
-          <div className="flex justify-end">
-            <Button variant="ghost" onClick={loadDemo}>
-              <Sparkles className="h-4 w-4" /> Fill with sample role
-            </Button>
+          {/* ── URL fetch row ─────────────────────────────────────────────── */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">
+              Job posting URL
+            </label>
+            <div className="flex gap-2">
+              <input
+                className={`${field} flex-1`}
+                value={form.website_url}
+                onChange={update("website_url")}
+                placeholder="https://jobs.example.com/software-engineer-12345"
+                type="url"
+              />
+              <Button
+                type="button"
+                variant="subtle"
+                onClick={fetchFromUrl}
+                disabled={fetching || health?.demo_mode}
+                className="shrink-0 gap-1.5"
+              >
+                {fetching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4" />
+                )}
+                {fetching ? "Fetching…" : "Fetch"}
+              </Button>
+            </div>
+
+            {/* status feedback */}
+            {fetchError && (
+              <p className="mt-1.5 text-xs text-rose-400">{fetchError}</p>
+            )}
+            {urlFetched && !fetchError && (
+              <p className="mt-1.5 text-xs text-teal-accent">
+                ✓ Job info loaded from URL — review and edit below if needed.
+              </p>
+            )}
+            {health?.demo_mode && (
+              <p className="mt-1.5 text-xs text-slate-500">
+                URL fetching requires a live LLM key — unavailable in demo mode.
+              </p>
+            )}
           </div>
 
+          {/* divider */}
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-white/10" />
+            <span className="text-xs text-slate-500">or fill in manually</span>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
+
+          {/* ── Manual fields ─────────────────────────────────────────────── */}
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">
@@ -155,7 +242,9 @@ export default function Setup({ onBack, onCreated, health }: Props) {
                 placeholder="e.g. Cloud Hardware Development Engineer"
               />
               {errors.job_title && (
-                <p className="mt-1 text-xs text-rose-400">{errors.job_title}</p>
+                <p className="mt-1 text-xs text-rose-400">
+                  {errors.job_title}
+                </p>
               )}
             </div>
           </div>
@@ -190,27 +279,26 @@ export default function Setup({ onBack, onCreated, health }: Props) {
             />
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">
-              Website URL{" "}
-              <span className="text-slate-500">(optional, informational)</span>
-            </label>
-            <input
-              className={field}
-              value={form.website_url}
-              onChange={update("website_url")}
-              placeholder="https://…"
-            />
-          </div>
-
           {serverError && (
             <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
               {serverError}
             </div>
           )}
 
-          <div className="flex justify-end pt-2">
-            <Button type="submit" className="px-7">
+          <div className="flex items-center justify-between pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={loadDemo}
+              className="text-slate-400"
+            >
+              <Sparkles className="h-4 w-4" /> Fill with sample role
+            </Button>
+            <Button
+              type="submit"
+              className="px-7"
+              disabled={!hasManualData && !urlFetched}
+            >
               Generate scenario & begin
             </Button>
           </div>
