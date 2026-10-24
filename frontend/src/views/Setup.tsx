@@ -194,11 +194,13 @@ export default function Setup({ onBack, onCreated, health }: Props) {
 
             {/* status feedback */}
             {fetchError && (
-              <p className="mt-1.5 text-xs text-rose-400">{fetchError}</p>
+              <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                {fetchError}
+              </div>
             )}
             {urlFetched && !fetchError && (
               <p className="mt-1.5 text-xs text-teal-accent">
-                ✓ Job info loaded from URL — review and edit below if needed.
+                ✓ Job info loaded — review and edit below if needed.
               </p>
             )}
             {health?.demo_mode && (

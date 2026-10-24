@@ -38,6 +38,7 @@ export const api = {
     request<FetchJobResponse>("/fetch-job", {
       method: "POST",
       body: JSON.stringify({ url }),
+      signal: AbortSignal.timeout(120_000), // 2 min for slow Gemini URL fetches
     }),
 
   createSimulation: (input: CreateSimulationInput) =>

@@ -75,10 +75,19 @@ def _require(session_id: str) -> Session:
 
 @app.get("/api/health")
 def health() -> dict:
+    model = None
+    if not engine.demo_mode:
+        provider = settings.llm_provider
+        if provider == "anthropic":
+            model = settings.anthropic_model
+        elif provider == "gemini":
+            model = settings.gemini_model
+        else:
+            model = settings.openai_model
     return {
         "status": "ok",
         "demo_mode": engine.demo_mode,
-        "model": settings.openai_model if not engine.demo_mode else None,
+        "model": model,
     }
 
 
@@ -96,7 +105,7 @@ def demo_sample() -> dict:
 
 
 @app.post("/api/fetch-job", response_model=FetchJobResponse)
-def fetch_job(req: FetchJobRequest) -> FetchJobResponse:
+async def fetch_job(req: FetchJobRequest) -> FetchJobResponse:
     """Fetch a job posting URL and extract structured fields using the LLM."""
     if engine.demo_mode or not engine.llm.available:
         raise HTTPException(
@@ -104,9 +113,13 @@ def fetch_job(req: FetchJobRequest) -> FetchJobResponse:
             detail="Job URL extraction requires a live LLM — no API key is configured.",
         )
     try:
-        from .llm import LLMError  # local import to avoid circular import at module level
-        result = engine.llm.fetch_job(req.url)
-    except Exception as exc:  # includes LLMError and network errors
+        import asyncio
+        from .llm import LLMError
+        # Run the blocking LLM call in a thread pool so it doesn't block the event loop
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, engine.llm.fetch_job, req.url
+        )
+    except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return FetchJobResponse(**result)
 

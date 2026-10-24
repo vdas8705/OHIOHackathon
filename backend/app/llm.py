@@ -187,6 +187,8 @@ class LLMService:
             raise LLMError("LLM not configured (demo mode)")
         if self.settings.llm_provider == "anthropic":
             return self._chat_anthropic(system, user)
+        if self.settings.llm_provider == "gemini":
+            return self._chat_gemini(system, user, json_mode=json_mode)
         return self._chat_openai(system, user, json_mode=json_mode)
 
     def _chat_anthropic(self, system: str, user: str) -> str:
@@ -214,6 +216,70 @@ class LLMService:
             raise LLMError(f"Anthropic HTTP error: {e.response.status_code} — {e.response.text}") from e
         except (httpx.HTTPError, KeyError, IndexError) as e:
             raise LLMError(f"Anthropic request failed: {e}") from e
+
+    def _chat_gemini(self, system: str, user: str, *, json_mode: bool = True) -> str:
+        """Call Google Gemini generateContent API."""
+        model = self.settings.gemini_model
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={self.settings.gemini_api_key}"
+        )
+        payload: dict[str, Any] = {
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 4096,
+            },
+        }
+        if json_mode:
+            payload["generationConfig"]["responseMimeType"] = "application/json"
+        try:
+            with httpx.Client(timeout=self.settings.llm_timeout_seconds) as client:
+                resp = client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+        except httpx.HTTPStatusError as e:
+            raise LLMError(f"Gemini HTTP error: {e.response.status_code} — {e.response.text}") from e
+        except (httpx.HTTPError, KeyError, IndexError) as e:
+            raise LLMError(f"Gemini request failed: {e}") from e
+
+    def _chat_gemini_with_url(self, system: str, user: str, fetch_url: str) -> str:
+        """Call Gemini with a URL context part — Gemini fetches the page itself."""
+        model = self.settings.gemini_model
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={self.settings.gemini_api_key}"
+        )
+        payload: dict[str, Any] = {
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        # URL context part — Gemini fetches this itself
+                        {"file_data": {"mime_type": "text/html", "file_uri": fetch_url}},
+                        {"text": user},
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0,
+                "maxOutputTokens": 4096,
+                "responseMimeType": "application/json",
+            },
+        }
+        try:
+            with httpx.Client(timeout=60) as client:
+                resp = client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+        except httpx.HTTPStatusError as e:
+            raise LLMError(f"Gemini URL-fetch error: {e.response.status_code} — {e.response.text}") from e
+        except (httpx.HTTPError, KeyError, IndexError) as e:
+            raise LLMError(f"Gemini URL-fetch failed: {e}") from e
 
     def _chat_openai(self, system: str, user: str, *, json_mode: bool = True) -> str:
         """Call OpenAI-compatible chat completions API."""
@@ -336,42 +402,212 @@ class LLMService:
         return self._chat_json(EVALUATION_SYSTEM_PROMPT, user)
 
     # ----------------------- job URL extraction -------------------------- #
-    def fetch_job(self, url: str) -> dict[str, str]:
-        """Fetch *url*, strip HTML boilerplate, then ask the LLM to extract
-        company / job_title / job_description / company_info.
 
-        Returns a dict with those four keys (may be empty strings if the LLM
-        could not determine a value).
+    # Sites known to block automated scraping — give a clear user message.
+    _BLOCKED_DOMAINS = (
+        "indeed.com",
+        "linkedin.com",
+        "glassdoor.com",
+        "ziprecruiter.com",
+        "monster.com",
+        "simplyhired.com",
+        "careerbuilder.com",
+    )
+
+    def fetch_job(self, url: str) -> dict[str, str]:
+        """Fetch a job posting URL and extract structured fields.
+
+        Anthropic and Gemini delegate fetching to the model's native URL tool
+        so their infrastructure fetches the page (bypassing bot-detection).
+        Falls back to local httpx fetch for OpenAI-compatible providers.
         """
-        # --- 1. Download the page ------------------------------------------
+        if self.settings.llm_provider == "anthropic":
+            return self._fetch_job_anthropic(url)
+        if self.settings.llm_provider == "gemini":
+            return self._fetch_job_gemini(url)
+        return self._fetch_job_httpx(url)
+
+    def _fetch_job_anthropic(self, job_url: str) -> dict[str, str]:
+        """Use Claude's built-in web_fetch server tool to retrieve the page.
+
+        The URL must appear in the user message for Claude to be allowed to
+        fetch it (Anthropic's URL-validation security rule).
+        """
+        api_url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": self.settings.anthropic_api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+
+        system = JOB_EXTRACTION_SYSTEM_PROMPT + (
+            "\n\nIMPORTANT: You have access to the web_fetch tool. "
+            "Fetch the URL provided by the user, read the full page content, "
+            "then return ONLY the JSON object — no preamble, no markdown fences."
+        )
+
+        user = (
+            f"Fetch this job posting and extract the fields:\n{job_url}"
+        )
+
+        payload: dict[str, Any] = {
+            "model": self.settings.anthropic_model,
+            "max_tokens": 4096,
+            "temperature": 0,
+            "system": system,
+            "tools": [
+                {
+                    "type": "web_fetch_20250910",
+                    "name": "web_fetch",
+                    "max_uses": 3,
+                }
+            ],
+            "messages": [{"role": "user", "content": user}],
+        }
+
+        # Claude may call web_fetch one or more times before producing the
+        # final text response.  We loop until stop_reason is "end_turn".
+        messages = payload["messages"]
+        last_text = ""
+        for _ in range(6):  # safety cap on agentic turns
+            try:
+                with httpx.Client(timeout=60) as client:
+                    resp = client.post(api_url, headers=headers, json={**payload, "messages": messages})
+                    resp.raise_for_status()
+                    data = resp.json()
+            except httpx.HTTPStatusError as e:
+                raise LLMError(
+                    f"Anthropic web_fetch error: {e.response.status_code} — {e.response.text}"
+                ) from e
+            except httpx.HTTPError as e:
+                raise LLMError(f"Anthropic request failed: {e}") from e
+
+            stop_reason = data.get("stop_reason")
+            content_blocks = data.get("content", [])
+
+            # Collect any text in this turn
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    last_text = block["text"]
+
+            if stop_reason == "end_turn":
+                break
+
+            if stop_reason == "tool_use":
+                # web_fetch is a server tool — Anthropic runs it automatically.
+                # We just need to append the assistant turn and continue.
+                messages = messages + [
+                    {"role": "assistant", "content": content_blocks},
+                ]
+                # If there are client tool_use blocks (shouldn't be for web_fetch),
+                # send empty tool_result blocks so the conversation can continue.
+                client_tool_uses = [b for b in content_blocks if b.get("type") == "tool_use"]
+                if client_tool_uses:
+                    tool_results = [
+                        {"type": "tool_result", "tool_use_id": b["id"], "content": ""}
+                        for b in client_tool_uses
+                    ]
+                    messages = messages + [{"role": "user", "content": tool_results}]
+                continue
+
+            # Any other stop reason — break and use whatever text we have
+            break
+
+        if not last_text:
+            raise LLMError("Claude returned no text after web_fetch.")
+
+        try:
+            extracted = _extract_json(last_text)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise LLMError(f"Could not parse Claude's extraction response: {e}") from e
+
+        return {
+            "company": str(extracted.get("company", "")),
+            "job_title": str(extracted.get("job_title", "")),
+            "job_description": str(extracted.get("job_description", "")),
+            "company_info": str(extracted.get("company_info", "")),
+        }
+
+    def _fetch_job_gemini(self, job_url: str) -> dict[str, str]:
+        """Use Gemini's URL context to fetch and extract job posting data."""
+        user = (
+            "Fetch the job posting at the URL provided and extract all job fields. "
+            "Return ONLY the JSON object with company, job_title, job_description, and company_info."
+        )
+        try:
+            raw = self._chat_gemini_with_url(JOB_EXTRACTION_SYSTEM_PROMPT, user, job_url)
+        except LLMError:
+            # Gemini URL context may fail for bot-protected sites too;
+            # fall back to httpx scrape
+            return self._fetch_job_httpx(job_url)
+
+        try:
+            extracted = _extract_json(raw)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise LLMError(f"Could not parse Gemini extraction response: {e}") from e
+
+        return {
+            "company": str(extracted.get("company", "")),
+            "job_title": str(extracted.get("job_title", "")),
+            "job_description": str(extracted.get("job_description", "")),
+            "company_info": str(extracted.get("company_info", "")),
+        }
+
+    def _fetch_job_httpx(self, url: str) -> dict[str, str]:
+        """Fallback: fetch the page ourselves with httpx (for OpenAI providers)."""
+        import urllib.parse
+
+        parsed_host = urllib.parse.urlparse(url).netloc.lower()
+        for domain in self._BLOCKED_DOMAINS:
+            if domain in parsed_host:
+                raise LLMError(
+                    f"{parsed_host} blocks automated access. "
+                    "Open the job posting in your browser, select all the text "
+                    "(Ctrl+A / Cmd+A), copy it, and paste it into the "
+                    "\"Full job description\" field below."
+                )
+
         headers = {
             "User-Agent": (
-                "Mozilla/5.0 (compatible; BranchPointBot/1.0; +https://branchpoint.app)"
-            )
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
         }
         try:
             resp = httpx.get(url, headers=headers, follow_redirects=True, timeout=20)
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise LLMError(
-                f"Could not fetch job page (HTTP {exc.response.status_code})"
-            ) from exc
+            status = exc.response.status_code
+            if status == 403:
+                raise LLMError(
+                    "This site blocked the request (403 Forbidden). "
+                    "Open the job posting in your browser, copy all the text, "
+                    "and paste it into the \"Full job description\" field below."
+                ) from exc
+            raise LLMError(f"Could not fetch job page (HTTP {status})") from exc
         except httpx.RequestError as exc:
             raise LLMError(f"Network error fetching job page: {exc}") from exc
 
-        # --- 2. Extract readable text from HTML ----------------------------
         soup = BeautifulSoup(resp.text, "html.parser")
-        # Remove script/style/nav/footer/header noise
+        page_title = (soup.title.string or "").lower() if soup.title else ""
+        body_snippet = resp.text[:2000].lower()
+        if any(kw in page_title or kw in body_snippet for kw in ("blocked", "captcha", "robot", "access denied", "just a moment")):
+            raise LLMError(
+                "This site returned a bot-detection page instead of the job listing. "
+                "Open the job posting in your browser, copy all the text, "
+                "and paste it into the \"Full job description\" field below."
+            )
+
         for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "meta", "link"]):
             tag.decompose()
         text = soup.get_text(separator="\n")
-        # Collapse excessive blank lines
         lines = [ln.strip() for ln in text.splitlines()]
         cleaned = "\n".join(ln for ln in lines if ln)
-        # Truncate to avoid massive token bills (≈60 000 chars ≈ 15 000 tokens)
         cleaned = cleaned[:60_000]
 
-        # --- 3. Ask the LLM to extract structured data --------------------
         user = (
             f"SOURCE URL: {url}\n\n"
             f"PAGE TEXT (data):\n{cleaned}\n\n"

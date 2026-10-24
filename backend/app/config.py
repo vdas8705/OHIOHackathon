@@ -29,6 +29,10 @@ class Settings:
             "OPENAI_BASE_URL", "https://api.openai.com/v1"
         ).strip().rstrip("/")
 
+        # Google Gemini
+        self.gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
+        self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash").strip()
+
         self.llm_timeout_seconds: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
         self.llm_max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "2"))
         raw_origins = os.getenv(
@@ -45,6 +49,8 @@ class Settings:
             return True
         if self.llm_provider == "anthropic":
             return not bool(self.anthropic_api_key)
+        if self.llm_provider == "gemini":
+            return not bool(self.gemini_api_key)
         return not bool(self.openai_api_key)
 
 
