@@ -150,7 +150,7 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 class LLMService:
-    """Thin wrapper over an OpenAI-compatible chat API."""
+    """Thin wrapper over Anthropic Claude or an OpenAI-compatible chat API."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -163,6 +163,38 @@ class LLMService:
     def _chat(self, system: str, user: str, *, json_mode: bool = True) -> str:
         if not self.available:
             raise LLMError("LLM not configured (demo mode)")
+        if self.settings.llm_provider == "anthropic":
+            return self._chat_anthropic(system, user)
+        return self._chat_openai(system, user, json_mode=json_mode)
+
+    def _chat_anthropic(self, system: str, user: str) -> str:
+        """Call Anthropic Messages API."""
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": self.settings.anthropic_api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, Any] = {
+            "model": self.settings.anthropic_model,
+            "max_tokens": 4096,
+            "temperature": 0.7,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        try:
+            with httpx.Client(timeout=self.settings.llm_timeout_seconds) as client:
+                resp = client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["content"][0]["text"]
+        except httpx.HTTPStatusError as e:
+            raise LLMError(f"Anthropic HTTP error: {e.response.status_code} — {e.response.text}") from e
+        except (httpx.HTTPError, KeyError, IndexError) as e:
+            raise LLMError(f"Anthropic request failed: {e}") from e
+
+    def _chat_openai(self, system: str, user: str, *, json_mode: bool = True) -> str:
+        """Call OpenAI-compatible chat completions API."""
         url = f"{self.settings.openai_base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.settings.openai_api_key}",
