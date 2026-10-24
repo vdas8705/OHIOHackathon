@@ -1,0 +1,26 @@
+# Node
+node_modules/
+frontend/dist/
+.toolchain/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env
+.env
+backend/.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Data
+backend/sessions.json
+frontend/.tsbuild/

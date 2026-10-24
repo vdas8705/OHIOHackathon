@@ -1,0 +1,221 @@
+import { useState } from "react";
+import { ArrowLeft, Sparkles, Loader2, GitBranch } from "lucide-react";
+import { Button, Panel, Badge } from "../components/ui";
+import { api } from "../api";
+import type { CreateSimulationInput, HealthInfo } from "../types";
+
+interface Props {
+  onBack: () => void;
+  onCreated: (sessionId: string) => void;
+  health: HealthInfo | null;
+}
+
+const EMPTY: CreateSimulationInput = {
+  company: "",
+  job_title: "",
+  job_description: "",
+  company_info: "",
+  website_url: "",
+};
+
+export default function Setup({ onBack, onCreated, health }: Props) {
+  const [form, setForm] = useState<CreateSimulationInput>(EMPTY);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const update =
+    (field: keyof CreateSimulationInput) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  async function loadDemo() {
+    try {
+      const sample = await api.demoSample();
+      setForm({
+        company: sample.company,
+        job_title: sample.job_title,
+        job_description: sample.job_description,
+        company_info: sample.company_info,
+        website_url: sample.website_url,
+      });
+      setErrors({});
+    } catch (e) {
+      setServerError((e as Error).message);
+    }
+  }
+
+  function validate(): boolean {
+    const next: Record<string, string> = {};
+    if (!form.company.trim()) next.company = "Company name is required.";
+    if (!form.job_title.trim()) next.job_title = "Job title is required.";
+    if (!form.job_description.trim())
+      next.job_description = "A job description is required.";
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setServerError(null);
+    if (!validate()) return;
+    setLoading(true);
+    try {
+      const state = await api.createSimulation({
+        ...form,
+        company: form.company.trim(),
+        job_title: form.job_title.trim(),
+        job_description: form.job_description.trim(),
+      });
+      onCreated(state.session_id);
+    } catch (e) {
+      setServerError((e as Error).message);
+      setLoading(false);
+    }
+  }
+
+  const field =
+    "w-full rounded-xl border border-white/10 bg-navy-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-teal-accent/50 focus:outline-none focus:ring-2 focus:ring-teal-accent/30";
+
+  if (loading) {
+    return (
+      <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-6 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-accent/10 ring-1 ring-teal-accent/20">
+          <Loader2 className="h-8 w-8 animate-spin text-teal-accent" />
+        </div>
+        <h2 className="mt-6 text-2xl font-bold">
+          Preparing your interview scenario…
+        </h2>
+        <p className="mt-3 text-sm text-slate-400">
+          We're analyzing the role and building a realistic, five-round
+          situational challenge for{" "}
+          <span className="text-slate-200">{form.job_title}</span>.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="mb-8 flex items-center justify-between">
+        <Button variant="subtle" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <div className="flex items-center gap-2">
+          <GitBranch className="h-5 w-5 text-teal-accent" />
+          <span className="font-bold">BranchPoint</span>
+        </div>
+      </div>
+
+      <h1 className="text-3xl font-bold">Set up your simulation</h1>
+      <p className="mt-2 text-slate-400">
+        Tell us about the role. The job description is the primary source for
+        your scenario, so paste the full posting.
+      </p>
+
+      {health?.demo_mode && (
+        <div className="mt-4">
+          <Badge tone="amber">
+            Demo mode — using a built-in scenario (no API key configured)
+          </Badge>
+        </div>
+      )}
+
+      <Panel className="mt-6 p-6">
+        <form onSubmit={submit} className="space-y-5">
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={loadDemo}>
+              <Sparkles className="h-4 w-4" /> Fill with sample role
+            </Button>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                Company name <span className="text-teal-accent">*</span>
+              </label>
+              <input
+                className={field}
+                value={form.company}
+                onChange={update("company")}
+                placeholder="e.g. Amazon"
+              />
+              {errors.company && (
+                <p className="mt-1 text-xs text-rose-400">{errors.company}</p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                Job title <span className="text-teal-accent">*</span>
+              </label>
+              <input
+                className={field}
+                value={form.job_title}
+                onChange={update("job_title")}
+                placeholder="e.g. Cloud Hardware Development Engineer"
+              />
+              {errors.job_title && (
+                <p className="mt-1 text-xs text-rose-400">{errors.job_title}</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">
+              Full job description <span className="text-teal-accent">*</span>
+            </label>
+            <textarea
+              className={`${field} min-h-[160px] resize-y`}
+              value={form.job_description}
+              onChange={update("job_description")}
+              placeholder="Paste the responsibilities, qualifications, and requirements here…"
+            />
+            {errors.job_description && (
+              <p className="mt-1 text-xs text-rose-400">
+                {errors.job_description}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">
+              Company information{" "}
+              <span className="text-slate-500">(optional)</span>
+            </label>
+            <textarea
+              className={`${field} min-h-[90px] resize-y`}
+              value={form.company_info}
+              onChange={update("company_info")}
+              placeholder="Mission, values, technical priorities, or context that shapes tone…"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">
+              Website URL{" "}
+              <span className="text-slate-500">(optional, informational)</span>
+            </label>
+            <input
+              className={field}
+              value={form.website_url}
+              onChange={update("website_url")}
+              placeholder="https://…"
+            />
+          </div>
+
+          {serverError && (
+            <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+              {serverError}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <Button type="submit" className="px-7">
+              Generate scenario & begin
+            </Button>
+          </div>
+        </form>
+      </Panel>
+    </div>
+  );
+}

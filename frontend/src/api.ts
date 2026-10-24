@@ -1,0 +1,72 @@
+import type {
+  ClarifyResponse,
+  CreateSimulationInput,
+  DemoSample,
+  HealthInfo,
+  PerformanceReport,
+  SimulationState,
+} from "./types";
+
+// All requests go through Vite's /api proxy to the FastAPI backend.
+const BASE = "/api";
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = String(body.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as T;
+}
+
+export const api = {
+  health: () => request<HealthInfo>("/health"),
+
+  demoSample: () => request<DemoSample>("/demo-sample"),
+
+  createSimulation: (input: CreateSimulationInput) =>
+    request<SimulationState>("/simulations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  getState: (sessionId: string) =>
+    request<SimulationState>(`/simulations/${sessionId}`),
+
+  respond: (
+    sessionId: string,
+    payload: {
+      round_number: number;
+      response: string;
+      timed_out: boolean;
+      elapsed_active_seconds: number;
+    }
+  ) =>
+    request<{ state: SimulationState }>(`/simulations/${sessionId}/respond`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }).then((r) => r.state),
+
+  clarify: (sessionId: string, round_number: number, question: string) =>
+    request<ClarifyResponse>(`/simulations/${sessionId}/clarify`, {
+      method: "POST",
+      body: JSON.stringify({ round_number, question }),
+    }),
+
+  finish: (sessionId: string) =>
+    request<SimulationState>(`/simulations/${sessionId}/finish`, {
+      method: "POST",
+    }),
+
+  report: (sessionId: string) =>
+    request<PerformanceReport>(`/simulations/${sessionId}/report`),
+};
