@@ -48,7 +48,6 @@ OHIOHackathon/
 │       ├── api.ts           Typed client for the backend
 │       └── types.ts         TS mirror of the backend contracts
 ├── scripts/                 run-backend.sh / run-frontend.sh helpers
-├── .env.example             Copy to backend/.env to enable live AI
 └── .toolchain/              Locally downloaded Node runtime (this machine had no Node)
 ```
 
@@ -108,7 +107,7 @@ configuration is needed in development.
 ## Environment variables
 
 Simul AI runs **without any API key** in a clearly labeled **demo mode**. To enable live AI,
-copy `.env.example` to `backend/.env` and fill in the values:
+create a `backend/.env` file (it is git-ignored, so keys stay off GitHub) with the values below:
 
 | Variable             | Required | Default                       | Purpose                                             |
 | -------------------- | -------- | ----------------------------- | --------------------------------------------------- |
