@@ -60,6 +60,7 @@ class Session:
         job_description: str,
         blueprint: ScenarioBlueprint,
         is_demo: bool,
+        is_fixture: bool = False,
     ) -> None:
         self.session_id = uuid.uuid4().hex
         self.company = company
@@ -67,6 +68,9 @@ class Session:
         self.job_description = job_description
         self.blueprint = blueprint
         self.is_demo = is_demo
+        # Marks synthetic sessions (test scripts / verification) so analytics can
+        # exclude them. Real user sessions in demo mode are NOT fixtures.
+        self.is_fixture = is_fixture
 
         self.current_round = 1
         self.completed_rounds = 0
@@ -142,6 +146,7 @@ class Engine:
         job_title: str,
         job_description: str,
         company_info: str,
+        is_fixture: bool = False,
     ) -> Session:
         is_demo = self.demo_mode
         blueprint: ScenarioBlueprint
@@ -164,6 +169,7 @@ class Engine:
             job_description=job_description,
             blueprint=blueprint,
             is_demo=is_demo,
+            is_fixture=is_fixture,
         )
         self.sessions[session.session_id] = session
         # Present round 1 immediately.
@@ -467,6 +473,19 @@ class Engine:
         if self.store is None or session.final_report is None:
             return
         try:
+            from .storage import (
+                ORIGIN_TEST_FIXTURE,
+                ORIGIN_USER_DEMO,
+                ORIGIN_USER_LIVE,
+            )
+
+            if session.is_fixture:
+                origin = ORIGIN_TEST_FIXTURE
+            elif session.is_demo:
+                origin = ORIGIN_USER_DEMO
+            else:
+                origin = ORIGIN_USER_LIVE
+
             conversation = [
                 {
                     "role": e.role,
@@ -489,6 +508,7 @@ class Engine:
                 schema_version=session.final_report.schema_version,
                 report=session.final_report.model_dump(),
                 conversation=conversation,
+                origin=origin,
             )
         except Exception:
             # Persistence must never break the live interview flow.

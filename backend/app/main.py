@@ -1,8 +1,12 @@
 """FastAPI application exposing the BranchPoint simulation API."""
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import os
+from typing import Optional
+
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from .config import get_settings
 from .demo_content import (
@@ -139,13 +143,21 @@ async def fetch_job(req: FetchJobRequest) -> FetchJobResponse:
 
 
 @app.post("/api/simulations", response_model=SimulationStateResponse)
-def create_simulation(req: CreateSimulationRequest) -> SimulationStateResponse:
+def create_simulation(
+    req: CreateSimulationRequest,
+    x_branchpoint_fixture: Optional[str] = Header(default=None),
+) -> SimulationStateResponse:
+    # Scripts and automated/manual verification can set this header so the
+    # resulting session is recorded as a synthetic fixture and excluded from
+    # user-facing analytics. Normal UI traffic never sends it.
+    is_fixture = str(x_branchpoint_fixture or "").strip().lower() in ("1", "true", "yes")
     try:
         session = engine.create_session(
             company=req.company.strip(),
             job_title=req.job_title.strip(),
             job_description=req.job_description.strip(),
             company_info=req.company_info.strip(),
+            is_fixture=is_fixture,
         )
     except Exception as e:  # pragma: no cover - defensive
         raise HTTPException(status_code=500, detail=f"Failed to create simulation: {e}")
@@ -255,7 +267,7 @@ def _report_for(session_id: str) -> tuple[dict, bool]:
     return saved["report"], bool(saved["report"].get("is_demo"))
 
 
-def _load_walkthrough(session_id: str) -> dict | None:
+def _load_walkthrough(session_id: str) -> Optional[dict]:
     return store.get_walkthrough(session_id) or _walkthrough_cache.get(session_id)
 
 
@@ -315,9 +327,12 @@ def walkthrough_ask(session_id: str, req: WalkthroughAskRequest) -> WalkthroughA
 # Persistent session history (LOCAL, SINGLE-USER MVP — see README/storage.py).
 # --------------------------------------------------------------------------- #
 @app.get("/api/history")
-def history_list() -> dict:
-    """List completed sessions saved to disk (survives backend restarts)."""
-    return {"sessions": store.list_sessions()}
+def history_list(include_fixtures: bool = False) -> dict:
+    """List completed sessions saved to disk (survives backend restarts).
+
+    Synthetic test fixtures are excluded unless include_fixtures=true.
+    """
+    return {"sessions": store.list_sessions(include_fixtures=include_fixtures)}
 
 
 @app.get("/api/history/{session_id}")
@@ -330,6 +345,58 @@ def history_detail(session_id: str) -> dict:
 
 
 @app.get("/api/history-trends")
-def history_trends() -> dict:
-    """Cross-session trend analysis computed only from stored results."""
-    return compute_trends(store.get_all_reports())
+def history_trends(include_fixtures: bool = False) -> dict:
+    """Cross-session trend analysis computed only from stored, non-fixture results."""
+    return compute_trends(store.get_all_reports(include_fixtures=include_fixtures))
+
+
+# --- Destructive: clear history (DEV-ONLY, gated) -------------------------- #
+def _destructive_enabled() -> bool:
+    """Guard: only allow destructive reset for local/dev use.
+
+    Enabled when demo mode is on OR BRANCHPOINT_ALLOW_RESET=1. A publicly
+    deployed live instance without the flag cannot expose this endpoint.
+    """
+    if os.getenv("BRANCHPOINT_ALLOW_RESET", "").strip() in ("1", "true", "yes"):
+        return True
+    return engine.demo_mode
+
+
+class ClearHistoryRequest(BaseModel):
+    confirm: bool = False
+    include_fixtures: bool = True
+
+
+@app.delete("/api/history/{session_id}")
+def delete_history_session(session_id: str) -> dict:
+    """Delete a single saved session. Requires the dev-reset guard."""
+    if not _destructive_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="History deletion is disabled on this instance.",
+        )
+    removed = store.delete_session(session_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Saved session not found")
+    return {"deleted": 1, "session_id": session_id}
+
+
+@app.post("/api/history/clear")
+def clear_history(req: ClearHistoryRequest) -> dict:
+    """Delete all locally stored sessions. Requires explicit confirmation.
+
+    Development-only reset: guarded by _destructive_enabled(). Touches only the
+    sessions table — never code, scenario templates, or API configuration.
+    """
+    if not _destructive_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="History reset is disabled on this instance.",
+        )
+    if not req.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation required: set confirm=true to clear history.",
+        )
+    count = store.clear_sessions(include_fixtures=req.include_fixtures)
+    return {"deleted": count}

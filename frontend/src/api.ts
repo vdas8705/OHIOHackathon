@@ -114,4 +114,15 @@ export const api = {
     request<HistoryDetail>(`/history/${sessionId}`),
 
   historyTrends: () => request<HistoryTrends>("/history-trends"),
+
+  deleteHistorySession: (sessionId: string) =>
+    request<{ deleted: number; session_id: string }>(`/history/${sessionId}`, {
+      method: "DELETE",
+    }),
+
+  clearHistory: (includeFixtures = true) =>
+    request<{ deleted: number }>("/history/clear", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true, include_fixtures: includeFixtures }),
+    }),
 };

@@ -19,6 +19,21 @@ _DB_PATH = os.getenv(
     os.path.join(os.path.dirname(__file__), "..", "branchpoint.db"),
 )
 
+# Session origin: how the record came to exist. Analytics exclude TEST_FIXTURE
+# by default. UNKNOWN is used for pre-existing rows whose origin we cannot
+# determine — we preserve them rather than guessing.
+ORIGIN_USER_DEMO = "user_demo"        # real user, demo mode
+ORIGIN_USER_LIVE = "user_live"        # real user, live AI
+ORIGIN_TEST_FIXTURE = "test_fixture"  # synthetic (scripts / manual verification)
+ORIGIN_UNKNOWN = "unknown"            # pre-existing, origin not recorded
+
+VALID_ORIGINS = {
+    ORIGIN_USER_DEMO,
+    ORIGIN_USER_LIVE,
+    ORIGIN_TEST_FIXTURE,
+    ORIGIN_UNKNOWN,
+}
+
 
 class HistoryStore:
     """Thread-safe SQLite store for completed interview sessions."""
@@ -29,6 +44,7 @@ class HistoryStore:
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
+        self._migrate()
 
     def _init_schema(self) -> None:
         with self._lock:
@@ -53,11 +69,26 @@ class HistoryStore:
                 )
                 """
             )
-            # Older databases predate the walkthrough column.
-            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sessions)")}
-            if "walkthrough_json" not in cols:
-                self._conn.execute("ALTER TABLE sessions ADD COLUMN walkthrough_json TEXT")
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Additive, non-destructive migrations. Never drops or edits user rows."""
+        with self._lock:
+            cols = {
+                row["name"]
+                for row in self._conn.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "origin" not in cols:
+                # Existing rows predate origin tracking: label them 'unknown'
+                # (preserve, don't guess or delete).
+                self._conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'unknown'"
+                )
+                self._conn.commit()
+            if "walkthrough_json" not in cols:
+                # Older databases predate the saved results walkthrough.
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN walkthrough_json TEXT")
+                self._conn.commit()
 
     def save_session(
         self,
@@ -75,15 +106,19 @@ class HistoryStore:
         schema_version: int,
         report: dict,
         conversation: list,
+        origin: str = ORIGIN_UNKNOWN,
     ) -> None:
+        if origin not in VALID_ORIGINS:
+            origin = ORIGIN_UNKNOWN
         with self._lock:
             self._conn.execute(
                 """
                 INSERT INTO sessions (
                     session_id, company, job_title, job_description, scenario_title,
                     is_demo, completion_status, rounds_completed, active_seconds,
-                    overall_score, schema_version, created_at, report_json, conversation_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    overall_score, schema_version, created_at, report_json,
+                    conversation_json, origin
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     completion_status=excluded.completion_status,
                     rounds_completed=excluded.rounds_completed,
@@ -91,7 +126,8 @@ class HistoryStore:
                     overall_score=excluded.overall_score,
                     schema_version=excluded.schema_version,
                     report_json=excluded.report_json,
-                    conversation_json=excluded.conversation_json
+                    conversation_json=excluded.conversation_json,
+                    origin=excluded.origin
                 """,
                 (
                     session_id,
@@ -108,21 +144,25 @@ class HistoryStore:
                     datetime.now(timezone.utc).isoformat(),
                     json.dumps(report),
                     json.dumps(conversation),
+                    origin,
                 ),
             )
             self._conn.commit()
 
-    def list_sessions(self) -> list[dict]:
+    def list_sessions(self, include_fixtures: bool = False) -> list[dict]:
+        """List sessions newest-first. Synthetic test fixtures are excluded
+        unless explicitly requested."""
         with self._lock:
             rows = self._conn.execute(
-                """
-                SELECT session_id, company, job_title, scenario_title, is_demo,
-                       completion_status, rounds_completed, active_seconds,
-                       overall_score, schema_version, created_at
-                FROM sessions ORDER BY created_at DESC
-                """
+                "SELECT * FROM sessions ORDER BY created_at DESC"
             ).fetchall()
-        return [self._summary_row(r) for r in rows]
+        result = []
+        for r in rows:
+            summary = self._summary_row(r)
+            if not include_fixtures and summary["origin"] == ORIGIN_TEST_FIXTURE:
+                continue
+            result.append(summary)
+        return result
 
     def get_session(self, session_id: str) -> Optional[dict]:
         with self._lock:
@@ -166,10 +206,11 @@ class HistoryStore:
             )
             self._conn.commit()
 
-    def get_all_reports(self) -> list[dict]:
-        """Return (summary + full report) for every completed session.
+    def get_all_reports(self, include_fixtures: bool = False) -> list[dict]:
+        """Return (summary + full report) for every session, oldest-first.
 
-        Used for cross-session trend analysis.
+        Synthetic test fixtures are excluded by default so analytics never
+        silently include them as real user performance.
         """
         with self._lock:
             rows = self._conn.execute(
@@ -178,12 +219,42 @@ class HistoryStore:
         out = []
         for r in rows:
             d = self._summary_row(r)
+            if not include_fixtures and d["origin"] == ORIGIN_TEST_FIXTURE:
+                continue
             d["report"] = json.loads(r["report_json"])
             out.append(d)
         return out
 
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a single session by id. Returns True if a row was removed."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM sessions WHERE session_id = ?", (session_id,)
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def clear_sessions(self, include_fixtures: bool = True) -> int:
+        """Delete stored sessions. Returns the number of rows removed.
+
+        Only touches the `sessions` table — never schema, config, or templates.
+        """
+        with self._lock:
+            if include_fixtures:
+                cur = self._conn.execute("DELETE FROM sessions")
+            else:
+                cur = self._conn.execute(
+                    "DELETE FROM sessions WHERE origin != ?", (ORIGIN_TEST_FIXTURE,)
+                )
+            self._conn.commit()
+            return cur.rowcount
+
     @staticmethod
     def _summary_row(r: sqlite3.Row) -> dict:
+        # `origin` may be absent on rows read before migration in-process; the
+        # migration adds it, but guard defensively.
+        keys = r.keys()
+        origin = r["origin"] if "origin" in keys else ORIGIN_UNKNOWN
         return {
             "session_id": r["session_id"],
             "company": r["company"],
@@ -196,6 +267,7 @@ class HistoryStore:
             "overall_score": r["overall_score"],
             "schema_version": r["schema_version"],
             "created_at": r["created_at"],
+            "origin": origin or ORIGIN_UNKNOWN,
         }
 
     def close(self) -> None:

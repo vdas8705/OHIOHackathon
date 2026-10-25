@@ -160,11 +160,41 @@ invalid output in live mode, so a live demo stays reliable even if the model mis
 | POST   | `/api/simulations/{id}/finish`         | End early and generate a partial report.           |
 | GET    | `/api/simulations/{id}/report`         | Fetch the weighted 100-point performance report.   |
 | GET    | `/api/simulations/{id}/review`         | Per-question tutor-style review (legacy view).     |
-| GET    | `/api/history`                         | List saved sessions (persisted to SQLite).         |
+| GET    | `/api/history`                         | List saved sessions (fixtures excluded by default).|
 | GET    | `/api/history/{id}`                    | Read-only saved report + transcript (no AI re-run).|
-| GET    | `/api/history-trends`                  | Cross-session trends from stored results.          |
+| GET    | `/api/history-trends`                  | Cross-session trends (fixtures excluded by default).|
+| DELETE | `/api/history/{id}`                    | Delete one saved session (dev-reset, gated).       |
+| POST   | `/api/history/clear`                   | Clear all saved sessions (requires `confirm:true`).|
 
 Interactive docs are available at `http://127.0.0.1:8000/docs`.
+
+### Session origin & keeping test data out of history
+
+Every saved session records an **origin** so synthetic data never shows up as real
+performance:
+
+- `user_demo` — a real user ran it in demo mode (legitimate; shown in history and analytics).
+- `user_live` — a real user ran it with live AI.
+- `test_fixture` — synthetic (verification scripts / manual API testing). **Excluded** from
+  `/api/history` and `/api/history-trends` by default; pass `?include_fixtures=true` to see them.
+- `unknown` — rows that predate origin tracking. Preserved and shown (we never guess origin from
+  the score), but you can delete them with the Clear History controls.
+
+To create a session without polluting real history (e.g. a demo-rehearsal or a smoke test),
+send the header `X-BranchPoint-Fixture: true` on `POST /api/simulations`. The resulting session
+is tagged `test_fixture` and stays out of the user-facing history and charts. Automated pytest
+runs use an isolated temp DB (`tests/conftest.py` sets `BRANCHPOINT_DB`), so they never touch
+`branchpoint.db` at all.
+
+### Clearing history before a demo
+
+The **Past Sessions** page has a **Clear history** button (and a per-session trash icon). Both
+pop a confirmation dialog explaining exactly what will be permanently deleted, then call the
+backend. Deletion touches only the `sessions` table — never code, scenario templates, or API
+config — and the list/charts refresh immediately with an empty state. The destructive endpoints
+are gated by `_destructive_enabled()` (on in demo mode, or when `BRANCHPOINT_ALLOW_RESET=1`), so
+a public live deployment without the flag can't expose them. Nothing is ever deleted
+automatically on startup.
 
 ### Scoring, classification, and weakness detection
 
