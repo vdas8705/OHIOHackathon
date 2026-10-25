@@ -3,9 +3,9 @@ import { recognitionService, synthesisService } from "./browserSpeech";
 
 /**
  * Text-to-speech hook for the interviewer voice.
- * Exposes speaking state and respects a mute toggle.
+ * Exposes speaking state and respects a mute toggle and speed setting.
  */
-export function useInterviewerVoice(muted: boolean) {
+export function useInterviewerVoice(muted: boolean, rate = 1) {
   const [speaking, setSpeaking] = useState(false);
   const supported = synthesisService.supported;
 
@@ -30,6 +30,7 @@ export function useInterviewerVoice(muted: boolean) {
       }
       setSpeaking(true);
       synthesisService.speak(text, {
+        rate,
         onStart: () => setSpeaking(true),
         onEnd: () => {
           setSpeaking(false);
@@ -37,7 +38,7 @@ export function useInterviewerVoice(muted: boolean) {
         },
       });
     },
-    [muted, supported]
+    [muted, supported, rate]
   );
 
   const stop = useCallback(() => {

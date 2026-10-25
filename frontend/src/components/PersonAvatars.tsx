@@ -1,6 +1,9 @@
-// Inline SVG person avatars — 8 diverse options.
+// Inline SVG person avatars — 8 diverse user options plus the assistant.
 // Flat, simple head-and-shoulders illustrations.
-// Colors come from CSS variables for the assistant; user avatars have fixed skin/hair tones.
+// User avatars have fixed skin/hair tones; the assistant is a distinct person
+// whose background, ring, and top come from the active theme's CSS variables.
+
+import { useId } from "react";
 
 export const NUM_AVATARS = 8;
 
@@ -32,15 +35,16 @@ interface Props {
 
 /** Renders a single person avatar as inline SVG. */
 export function PersonAvatarSVG({ index, size = 36, isAssistant = false }: Props) {
+  if (isAssistant) return <AssistantAvatarSVG size={size} />;
+
   const cfg = AVATAR_CONFIGS[index % AVATAR_CONFIGS.length];
   const w = size;
   const h = size;
 
-  // Assistant uses theme colors; user uses fixed diverse tones
-  const skinColor = isAssistant ? "var(--avatar-ai-icon)" : cfg.skin;
-  const hairColor = isAssistant ? "var(--accent)" : cfg.hair;
-  const bgColor = isAssistant ? "var(--avatar-ai-bg)" : "var(--avatar-user-bg)";
-  const ringColor = isAssistant ? "var(--avatar-ai-ring)" : "var(--avatar-user-ring)";
+  const skinColor = cfg.skin;
+  const hairColor = cfg.hair;
+  const bgColor = "var(--avatar-user-bg)";
+  const ringColor = "var(--avatar-user-ring)";
 
   return (
     <svg
@@ -121,6 +125,62 @@ export function PersonAvatarSVG({ index, size = 36, isAssistant = false }: Props
 
       {/* Smile */}
       <path d="M20 26 Q24 29 28 26" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
+const ASSISTANT_SKIN = "#d29a6f";
+const ASSISTANT_HAIR = "#3b2418";
+
+/** The interviewer: a smiling person with shoulder-length hair and a collared top. */
+export function AssistantAvatarSVG({ size = 36 }: { size?: number }) {
+  const clipId = `assistant-clip-${useId().replace(/:/g, "")}`;
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <defs>
+        <clipPath id={clipId}>
+          <circle cx="24" cy="24" r="23" />
+        </clipPath>
+      </defs>
+
+      {/* Background circle */}
+      <circle cx="24" cy="24" r="23" fill="var(--avatar-ai-bg)" stroke="var(--avatar-ai-ring)" strokeWidth="1.5" />
+
+      <g clipPath={`url(#${clipId})`}>
+        {/* Hair behind the head, falling to the shoulders */}
+        <path d="M14.5 21 Q14 11 24 10.5 Q34 11 33.5 21 L34.5 33 Q31 35 28 33 L20 33 Q17 35 13.5 33 Z" fill={ASSISTANT_HAIR} />
+
+        {/* Top in the theme accent, with a lighter collar */}
+        <path d="M8 48 Q8.5 37 19 35.5 L24 39 L29 35.5 Q39.5 37 40 48 Z" fill="var(--avatar-ai-icon)" />
+        <path d="M19 35.5 L24 39 L22 41.5 L17.5 36.6 Z M29 35.5 L24 39 L26 41.5 L30.5 36.6 Z" fill="#ffffff" opacity="0.85" />
+
+        {/* Neck */}
+        <path d="M20.5 29 L27.5 29 L27.5 35 Q24 39 20.5 35 Z" fill={ASSISTANT_SKIN} />
+
+        {/* Ears and head */}
+        <ellipse cx="15.6" cy="22.5" rx="1.6" ry="2.2" fill={ASSISTANT_SKIN} />
+        <ellipse cx="32.4" cy="22.5" rx="1.6" ry="2.2" fill={ASSISTANT_SKIN} />
+        <ellipse cx="24" cy="21.5" rx="8.5" ry="9.2" fill={ASSISTANT_SKIN} />
+
+        {/* Side-swept fringe */}
+        <path d="M15.4 20 Q15.5 12.2 24 12.2 Q32.6 12.2 32.6 20 Q30 15.5 25 16.2 Q20 17 15.4 20 Z" fill={ASSISTANT_HAIR} />
+
+        {/* Brows, eyes, cheeks, smile */}
+        <path d="M18.4 18.6 Q20 17.7 21.6 18.4 M26.4 18.4 Q28 17.7 29.6 18.6" stroke={ASSISTANT_HAIR} strokeWidth="0.9" strokeLinecap="round" />
+        <circle cx="20" cy="21.6" r="1.15" fill="#1a1a1a" />
+        <circle cx="28" cy="21.6" r="1.15" fill="#1a1a1a" />
+        <circle cx="18.6" cy="25" r="1.6" fill="#e8737a" opacity="0.35" />
+        <circle cx="29.4" cy="25" r="1.6" fill="#e8737a" opacity="0.35" />
+        <path d="M20.2 25.4 Q24 29.4 27.8 25.4" stroke="#5a2a20" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+      </g>
     </svg>
   );
 }

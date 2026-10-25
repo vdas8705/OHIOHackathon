@@ -3,7 +3,10 @@
 
 export interface SpeechSynthesisService {
   readonly supported: boolean;
-  speak(text: string, opts?: { onEnd?: () => void; onStart?: () => void }): void;
+  speak(
+    text: string,
+    opts?: { onEnd?: () => void; onStart?: () => void; rate?: number }
+  ): void;
   cancel(): void;
 }
 

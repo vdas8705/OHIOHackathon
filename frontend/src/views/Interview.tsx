@@ -18,10 +18,12 @@ import {
   StatusPills,
   MicButton,
   ToggleIconButton,
+  VoiceSettingsButton,
 } from "../components/VoiceControls";
 import { PersonAvatarSVG } from "../components/PersonAvatars";
 import { api } from "../api";
 import { useInterviewerVoice, useSpeechRecognition } from "../speech/useSpeech";
+import { loadVoiceSettings, saveVoiceSettings } from "../speech/voiceSettings";
 import type { SimulationState } from "../types";
 
 interface Props {
@@ -56,10 +58,13 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   const [extraText, setExtraText] = useState("");
 
   // Voice / mic
-  const [interviewerMuted, setInterviewerMuted] = useState(false);
+  const [voiceSettings] = useState(loadVoiceSettings);
+  const [interviewerMuted, setInterviewerMuted] = useState(!voiceSettings.enabled);
+  const [voiceRate, setVoiceRate] = useState(voiceSettings.rate);
   const [micMuted, setMicMuted] = useState(false);
   const { speak, stop: stopSpeaking, speaking } = useInterviewerVoice(
-    interviewerMuted
+    interviewerMuted,
+    voiceRate
   );
   const rec = useSpeechRecognition();
 
@@ -195,7 +200,13 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   function toggleInterviewerMute() {
     const next = !interviewerMuted;
     setInterviewerMuted(next);
+    saveVoiceSettings({ enabled: !next, rate: voiceRate });
     if (next) stopSpeaking();
+  }
+
+  function changeVoiceRate(rate: number) {
+    setVoiceRate(rate);
+    saveVoiceSettings({ enabled: !interviewerMuted, rate });
   }
 
   async function handleSubmit(timedOut = false) {
@@ -640,6 +651,12 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
                       ? "Unmute interviewer"
                       : "Mute interviewer"
                   }
+                />
+                <VoiceSettingsButton
+                  enabled={!interviewerMuted}
+                  rate={voiceRate}
+                  onToggleEnabled={toggleInterviewerMute}
+                  onRateChange={changeVoiceRate}
                 />
                 <ToggleIconButton
                   active={!micMuted}

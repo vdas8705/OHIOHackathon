@@ -1,4 +1,6 @@
-import { Mic, MicOff, Volume2, VolumeX, Radio, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Mic, MicOff, Volume2, VolumeX, Radio, Loader2, SlidersHorizontal } from "lucide-react";
+import { MAX_VOICE_RATE, MIN_VOICE_RATE } from "../speech/voiceSettings";
 
 export type MicPhase =
   | "idle"
@@ -138,6 +140,88 @@ export function ToggleIconButton({
     >
       {active ? onIcon : offIcon}
     </button>
+  );
+}
+
+export function VoiceSettingsButton({
+  enabled,
+  rate,
+  onToggleEnabled,
+  onRateChange,
+}: {
+  enabled: boolean;
+  rate: number;
+  onToggleEnabled: () => void;
+  onRateChange: (rate: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click or Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title="Voice settings"
+        aria-label="Voice settings"
+        aria-expanded={open}
+        className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 transition-all hover:bg-white/10"
+      >
+        <SlidersHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Voice settings"
+          className="absolute bottom-12 left-0 z-20 w-60 rounded-xl border p-4 shadow-xl shadow-black/30"
+          style={{ background: "var(--bg-panel)", borderColor: "var(--bg-panel-border)", backdropFilter: "blur(12px)" }}
+        >
+          <label className="flex items-center justify-between text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+            Interviewer voice
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={onToggleEnabled}
+              className="h-4 w-4"
+              style={{ accentColor: "var(--accent)" }}
+            />
+          </label>
+          <label className="mt-4 block text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+            <span className="flex items-center justify-between">
+              Speed
+              <span className="text-xs tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                {rate.toFixed(2)}×
+              </span>
+            </span>
+            <input
+              type="range"
+              min={MIN_VOICE_RATE}
+              max={MAX_VOICE_RATE}
+              step={0.05}
+              value={rate}
+              disabled={!enabled}
+              onChange={(e) => onRateChange(Number(e.target.value))}
+              className="mt-2 w-full disabled:opacity-40"
+              style={{ accentColor: "var(--accent)" }}
+            />
+          </label>
+        </div>
+      )}
+    </div>
   );
 }
 
