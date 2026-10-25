@@ -19,6 +19,8 @@ from .models import (
     CreateSimulationRequest,
     FetchJobRequest,
     FetchJobResponse,
+    InterpretRequest,
+    InterpretResponse,
     PublicScenario,
     QuestionReview,
     RespondRequest,
@@ -159,6 +161,29 @@ def respond(session_id: str, req: RespondRequest) -> RespondResponse:
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return RespondResponse(state=_state(session))
+
+
+@app.post("/api/simulations/{session_id}/interpret", response_model=InterpretResponse)
+def interpret(session_id: str, req: InterpretRequest) -> InterpretResponse:
+    """Neutral restatement of the candidate's answer before grading."""
+    session = _require(session_id)
+    if not session.is_active:
+        raise HTTPException(status_code=409, detail="Session is not active")
+    if req.round_number != session.current_round:
+        raise HTTPException(status_code=409, detail="Interpretation must target the current round")
+    question = session.current_turn.question if session.current_turn else ""
+    try:
+        if session.is_demo or not engine.llm.available:
+            # Simple heuristic restatement in demo mode
+            text = req.response.strip() if req.response.strip() else "(no answer provided)"
+            interpretation = f"Here's how I understood your answer: you said {text[:200]}. Did I get that right?"
+        else:
+            interpretation = engine.llm.interpret(question, req.response)
+    except Exception as exc:
+        # Fallback: simple restatement
+        text = req.response.strip() if req.response.strip() else "(no answer provided)"
+        interpretation = f"Here's how I understood your answer: {text[:200]}. Did I get that right?"
+    return InterpretResponse(interpretation=interpretation)
 
 
 @app.post("/api/simulations/{session_id}/clarify", response_model=ClarifyResponse)

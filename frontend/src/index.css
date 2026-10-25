@@ -2,48 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Default theme vars (midnight) as fallback before JS runs. ────────── */
 :root {
-  color-scheme: dark;
+  --bg-page:            linear-gradient(160deg, #050810 0%, #080d1a 100%);
+  --bg-panel:           rgba(12,20,38,0.85);
+  --bg-panel-border:    rgba(34,211,238,0.12);
+  --bg-bubble-ai:       rgba(15,25,45,0.9);
+  --bg-bubble-user:     #22d3ee;
+  --bg-bubble-border-ai:rgba(34,211,238,0.15);
+  --bg-interpret:       rgba(15,30,55,0.9);
+  --bg-interpret-border:rgba(34,211,238,0.25);
+  --text-primary:       #e0e7ff;
+  --text-secondary:     #8b9bb8;
+  --text-bubble-user:   #050810;
+  --text-bubble-ai:     #c7d2fe;
+  --text-interpret:     #a5f3fc;
+  --accent:             #22d3ee;
+  --accent-text:        #050810;
+  --accent-hover:       #67e8f9;
+  --avatar-ai-bg:       rgba(34,211,238,0.15);
+  --avatar-ai-ring:     rgba(34,211,238,0.35);
+  --avatar-ai-icon:     #67e8f9;
+  --avatar-user-bg:     rgba(168,85,247,0.15);
+  --avatar-user-ring:   rgba(168,85,247,0.35);
+  --avatar-user-icon:   #c4b5fd;
+  --badge-bg:           rgba(34,211,238,0.12);
+  --badge-text:         #67e8f9;
+  --badge-border:       rgba(34,211,238,0.3);
+  --header-text:        #e0e7ff;
+  --scrollbar-thumb:    rgba(139,155,184,0.3);
+  --btn-ghost-bg:       rgba(255,255,255,0.05);
+  --btn-ghost-text:     #e0e7ff;
+  --btn-ghost-border:   rgba(255,255,255,0.1);
+  --color-scheme:       dark;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
+html, body, #root { height: 100%; }
 
 body {
   margin: 0;
-  background: radial-gradient(
-      1200px 600px at 80% -10%,
-      rgba(45, 212, 191, 0.08),
-      transparent
-    ),
-    linear-gradient(180deg, #0a0f1c 0%, #0b1120 100%);
-  color: #e5e7eb;
+  background: var(--bg-page);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
-/* Thin scrollbars for the transcript / dialogue panels */
-.scroll-slim::-webkit-scrollbar {
-  width: 8px;
-}
+.scroll-slim::-webkit-scrollbar { width: 8px; }
 .scroll-slim::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
+  background: var(--scrollbar-thumb);
   border-radius: 999px;
 }
 
 @media print {
-  .no-print {
-    display: none !important;
-  }
-  body {
-    background: #ffffff;
-    color: #111827;
-  }
-  .print-light {
-    background: #ffffff !important;
-    color: #111827 !important;
-    border-color: #d1d5db !important;
-  }
+  .no-print { display: none !important; }
+  body { background: #fff; color: #111; }
+  .print-light { background: #fff !important; color: #111 !important; border-color: #d1d5db !important; }
 }

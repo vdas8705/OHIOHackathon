@@ -165,6 +165,20 @@ Return ONLY valid JSON matching this schema exactly:
 }
 """
 
+INTERPRET_SYSTEM_PROMPT = """You are an interview assistant. The candidate just submitted an \
+answer to a situational question. Your job is to restate how you understood their answer in \
+plain language, WITHOUT judging whether it is right or wrong.
+
+Rules:
+- Restate what the candidate said: their main point, reasoning, and key details.
+- Be neutral — do NOT hint whether the answer is good, bad, correct, or incorrect.
+- Keep it to 2-3 sentences, conversational tone.
+- Start with "Here's how I understood your answer:".
+- End with "Did I get that right?"
+
+Return ONLY plain text, no JSON, no markdown.
+"""
+
 JOB_EXTRACTION_SYSTEM_PROMPT = """You are a job-posting parser. You will be given raw text \
 scraped from a job listing web page. Extract the key fields and return ONLY valid JSON.
 
@@ -449,6 +463,15 @@ class LLMService:
             "Produce the per-question review now."
         )
         return self._chat_json(REVIEW_SYSTEM_PROMPT, user)
+
+    def interpret(self, question: str, response: str) -> str:
+        """Neutral restatement of the candidate's answer (no grading)."""
+        user = (
+            f"QUESTION ASKED (data): {question}\n\n"
+            f"CANDIDATE'S ANSWER (data):\n{response or '(no answer provided)'}\n\n"
+            "Restate how you understood their answer."
+        )
+        return self._chat(INTERPRET_SYSTEM_PROMPT, user, json_mode=False).strip()
 
     # ----------------------- job URL extraction -------------------------- #
 

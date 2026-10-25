@@ -232,6 +232,17 @@ class RespondRequest(BaseModel):
     elapsed_active_seconds: int = Field(default=0, ge=0)
 
 
+class InterpretRequest(BaseModel):
+    round_number: int = Field(ge=1, le=TOTAL_ROUNDS)
+    response: str = Field(default="", max_length=10000)
+
+
+class InterpretResponse(BaseModel):
+    interpretation: str
+    clarifications_used: int = 0
+    max_clarifications: int = 2
+
+
 class ClarifyRequest(BaseModel):
     round_number: int = Field(ge=1, le=TOTAL_ROUNDS)
     question: str = Field(min_length=1, max_length=2000)

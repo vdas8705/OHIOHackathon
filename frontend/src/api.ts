@@ -4,6 +4,7 @@ import type {
   DemoSample,
   FetchJobResponse,
   HealthInfo,
+  InterpretResponse,
   PerformanceReport,
   SessionReview,
   SimulationState,
@@ -81,4 +82,10 @@ export const api = {
 
   review: (sessionId: string) =>
     request<SessionReview>(`/simulations/${sessionId}/review`),
+
+  interpret: (sessionId: string, round_number: number, response: string) =>
+    request<InterpretResponse>(`/simulations/${sessionId}/interpret`, {
+      method: "POST",
+      body: JSON.stringify({ round_number, response }),
+    }),
 };

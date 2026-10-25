@@ -111,6 +111,12 @@ export interface SessionReview {
   is_demo: boolean;
 }
 
+export interface InterpretResponse {
+  interpretation: string;
+  clarifications_used: number;
+  max_clarifications: number;
+}
+
 export interface SavedSession {
   id: string;
   company: string;

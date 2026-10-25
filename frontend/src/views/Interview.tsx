@@ -10,8 +10,8 @@ import {
   MicOff,
   Loader2,
   AlertTriangle,
-  Bot,
-  User,
+  Check,
+  MessageSquarePlus,
 } from "lucide-react";
 import { Button, Panel, Badge, formatTime } from "../components/ui";
 import {
@@ -19,12 +19,14 @@ import {
   MicButton,
   ToggleIconButton,
 } from "../components/VoiceControls";
+import { PersonAvatarSVG } from "../components/PersonAvatars";
 import { api } from "../api";
 import { useInterviewerVoice, useSpeechRecognition } from "../speech/useSpeech";
 import type { SimulationState } from "../types";
 
 interface Props {
   sessionId: string;
+  userAvatarId: number;
   onComplete: (
     sessionId: string,
     bubbles: { id: string; role: string; text: string; round: number }[],
@@ -35,15 +37,23 @@ interface Props {
 
 interface Bubble {
   id: string;
-  role: "interviewer" | "candidate" | "clarify_q" | "clarify_a";
+  role: "interviewer" | "candidate" | "clarify_q" | "clarify_a" | "interpretation";
   text: string;
   round: number;
 }
 
-export default function Interview({ sessionId, onComplete, picker }: Props) {
+export default function Interview({ sessionId, userAvatarId, onComplete, picker }: Props) {
   const [state, setState] = useState<SimulationState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+
+  // Answer confirmation flow
+  const [interpreting, setInterpreting] = useState(false);
+  const [interpretation, setInterpretation] = useState<string | null>(null);
+  const [pendingAnswer, setPendingAnswer] = useState("");
+  const [clarificationCount, setClarificationCount] = useState(0);
+  const [clarifyingMore, setClarifyingMore] = useState(false);
+  const [extraText, setExtraText] = useState("");
 
   // Voice / mic
   const [interviewerMuted, setInterviewerMuted] = useState(false);
@@ -189,28 +199,98 @@ export default function Interview({ sessionId, onComplete, picker }: Props) {
   }
 
   async function handleSubmit(timedOut = false) {
-    if (!state || processing) return;
+    if (!state || processing || interpreting) return;
     if (state.completion_status !== "in_progress") return;
     rec.stop();
-    setTimerActive(false);
-    setProcessing(true);
-
     const round = state.current_round;
     const text = answer.trim();
 
-    setBubbles((b) => [
-      ...b,
-      {
-        id: `cand-${round}`,
-        role: "candidate",
-        text: text || (timedOut ? "(No answer — time expired)" : "(No answer)"),
-        round,
-      },
-    ]);
+    // If timed out, skip interpretation and submit directly
+    if (timedOut) {
+      setBubbles((b) => [
+        ...b,
+        { id: `cand-${round}`, role: "candidate", text: text || "(No answer — time expired)", round },
+      ]);
+      await submitForGrading(text, true);
+      return;
+    }
+
+    // Start the interpretation confirmation flow
+    setPendingAnswer(text);
+    setClarificationCount(0);
+    setInterpretation(null);
+    setInterpreting(true);
+
+    try {
+      const res = await api.interpret(sessionId, round, text);
+      setInterpretation(res.interpretation);
+      setBubbles((b) => [
+        ...b,
+        { id: `cand-${round}`, role: "candidate", text, round },
+        { id: `interp-${round}`, role: "interpretation", text: res.interpretation, round },
+      ]);
+    } catch (e) {
+      // Fallback: skip interpretation, go straight to grading
+      setBubbles((b) => [
+        ...b,
+        { id: `cand-${round}`, role: "candidate", text, round },
+      ]);
+      await submitForGrading(text, false);
+      return;
+    } finally {
+      setInterpreting(false);
+    }
+  }
+
+  async function confirmAndSubmit() {
+    setInterpretation(null);
+    await submitForGrading(pendingAnswer, false);
+  }
+
+  async function requestClarification() {
+    setClarifyingMore(true);
+    setExtraText("");
+    setInterpretation(null);
+  }
+
+  async function submitAnswerClarification() {
+    if (!state || !extraText.trim() || interpreting) return;
+    const round = state.current_round;
+    const combined = (pendingAnswer + " " + extraText.trim()).trim();
+    const newCount = clarificationCount + 1;
+    setClarificationCount(newCount);
+    setPendingAnswer(combined);
+    setExtraText("");
+    setClarifyingMore(false);
+    setInterpreting(true);
+
+    try {
+      const res = await api.interpret(sessionId, round, combined);
+      setInterpretation(res.interpretation);
+      setBubbles((b) => [
+        ...b,
+        { id: `cand-cl-${round}-${newCount}`, role: "candidate", text: `(Clarification) ${extraText.trim()}`, round },
+        { id: `interp-${round}-${newCount}`, role: "interpretation", text: res.interpretation, round },
+      ]);
+    } catch {
+      // If interpret fails on clarification, just submit what we have
+      await submitForGrading(combined, false);
+      return;
+    } finally {
+      setInterpreting(false);
+    }
+  }
+
+  async function submitForGrading(text: string, timedOut: boolean) {
+    if (!state) return;
+    setTimerActive(false);
+    setProcessing(true);
+    setInterpretation(null);
+    setClarifyingMore(false);
 
     try {
       const next = await api.respond(sessionId, {
-        round_number: round,
+        round_number: state.current_round,
         response: text,
         timed_out: timedOut,
         elapsed_active_seconds: Math.min(
@@ -221,11 +301,12 @@ export default function Interview({ sessionId, onComplete, picker }: Props) {
       setState(next);
       setAnswer("");
     } catch (e) {
-      // Conflict / network: keep the round, surface the error, let them retry.
       setLoadError((e as Error).message);
       setTimerActive(true);
     } finally {
       setProcessing(false);
+      setPendingAnswer("");
+      setClarificationCount(0);
     }
   }
 
@@ -371,7 +452,7 @@ export default function Interview({ sessionId, onComplete, picker }: Props) {
             const showAvatar =
               !prev ||
               (sameGroup(b.role) ? !sameGroup(prev.role) : sameGroup(prev.role) || prev.role !== b.role);
-            return <ChatBubble key={b.id} bubble={b} showAvatar={showAvatar} />;
+            return <ChatBubble key={b.id} bubble={b} showAvatar={showAvatar} userAvatarId={userAvatarId} />;
           })}
           {rec.interim && (
             <div className="flex items-end justify-end gap-2.5">
@@ -384,6 +465,66 @@ export default function Interview({ sessionId, onComplete, picker }: Props) {
           )}
         </div>
       </Panel>
+
+      {/* Interpretation confirmation */}
+      {interpreting && (
+        <div className="mt-4 flex items-center gap-3 rounded-xl border px-4 py-3"
+          style={{ borderColor: "var(--bg-interpret-border)", background: "var(--bg-interpret)" }}>
+          <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--accent)" }} />
+          <span className="text-sm" style={{ color: "var(--text-interpret)" }}>Summarizing your answer…</span>
+        </div>
+      )}
+
+      {interpretation && !interpreting && !clarifyingMore && (
+        <div className="mt-4 rounded-xl border p-4"
+          style={{ borderColor: "var(--bg-interpret-border)", background: "var(--bg-interpret)" }}>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--text-interpret)" }}>
+            {interpretation}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button onClick={confirmAndSubmit} disabled={processing}>
+              <Check className="h-4 w-4" /> That's right, submit it
+            </Button>
+            {clarificationCount < 2 ? (
+              <Button variant="ghost" onClick={requestClarification} disabled={processing}>
+                <MessageSquarePlus className="h-4 w-4" /> Let me explain more
+              </Button>
+            ) : (
+              <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                Max clarifications reached — please submit your answer.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {clarifyingMore && !interpreting && (
+        <div className="mt-4 rounded-xl border p-4"
+          style={{ borderColor: "var(--bg-interpret-border)", background: "var(--bg-interpret)" }}>
+          <p className="mb-2 text-sm font-medium" style={{ color: "var(--text-interpret)" }}>
+            Add more detail to your answer:
+          </p>
+          <textarea
+            value={extraText}
+            onChange={(e) => setExtraText(e.target.value)}
+            placeholder="Add any clarification or additional details…"
+            className="min-h-[60px] w-full resize-y rounded-xl border px-4 py-3 text-sm focus:outline-none"
+            style={{
+              background: "var(--bg-panel)",
+              borderColor: "var(--bg-panel-border)",
+              color: "var(--text-primary)",
+            }}
+          />
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="subtle" onClick={() => { setClarifyingMore(false); setInterpretation(null); }}>
+              Cancel
+            </Button>
+            <Button onClick={submitAnswerClarification} disabled={!extraText.trim() || interpreting}>
+              Update & re-check
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Status + timer */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -535,9 +676,9 @@ export default function Interview({ sessionId, onComplete, picker }: Props) {
                 </Button>
                 <Button
                   onClick={() => handleSubmit(false)}
-                  disabled={processing || speaking}
+                  disabled={processing || speaking || interpreting || !!interpretation}
                 >
-                  {processing ? (
+                  {processing || interpreting ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" /> Processing
                     </>
@@ -564,32 +705,24 @@ function InterviewerAvatar({ visible }: { visible: boolean }) {
       {visible && (
         <div
           className="flex h-9 w-9 items-center justify-center rounded-full"
-          style={{
-            background: "var(--avatar-ai-bg)",
-            boxShadow: "0 0 0 2px var(--avatar-ai-ring)",
-          }}
+          style={{ background: "var(--avatar-ai-bg)", boxShadow: "0 0 0 2px var(--avatar-ai-ring)" }}
         >
-          <Bot className="h-4.5 w-4.5" aria-hidden="true"
-            style={{ width: 18, height: 18, color: "var(--avatar-ai-icon)" }} />
+          <PersonAvatarSVG index={0} size={32} isAssistant />
         </div>
       )}
     </div>
   );
 }
 
-function UserAvatar({ visible }: { visible: boolean }) {
+function UserAvatar({ visible, avatarId }: { visible: boolean; avatarId: number }) {
   return (
     <div className="shrink-0 w-9 h-9" aria-label={visible ? "You" : undefined}>
       {visible && (
         <div
           className="flex h-9 w-9 items-center justify-center rounded-full"
-          style={{
-            background: "var(--avatar-user-bg)",
-            boxShadow: "0 0 0 2px var(--avatar-user-ring)",
-          }}
+          style={{ background: "var(--avatar-user-bg)", boxShadow: "0 0 0 2px var(--avatar-user-ring)" }}
         >
-          <User className="h-4.5 w-4.5" aria-hidden="true"
-            style={{ width: 18, height: 18, color: "var(--avatar-user-icon)" }} />
+          <PersonAvatarSVG index={avatarId} size={32} />
         </div>
       )}
     </div>
@@ -598,7 +731,7 @@ function UserAvatar({ visible }: { visible: boolean }) {
 
 // ── ChatBubble ────────────────────────────────────────────────────────────────
 
-function ChatBubble({ bubble, showAvatar }: { bubble: Bubble; showAvatar: boolean }) {
+function ChatBubble({ bubble, showAvatar, userAvatarId }: { bubble: Bubble; showAvatar: boolean; userAvatarId: number }) {
   if (bubble.role === "interviewer") {
     return (
       <div className="flex animate-fadeInUp items-start gap-2.5">
@@ -635,15 +768,12 @@ function ChatBubble({ bubble, showAvatar }: { bubble: Bubble; showAvatar: boolea
           )}
           <div
             className="rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-sm"
-            style={{
-              background: "var(--bg-bubble-user)",
-              color: "var(--text-bubble-user)",
-            }}
+            style={{ background: "var(--bg-bubble-user)", color: "var(--text-bubble-user)" }}
           >
             {bubble.text}
           </div>
         </div>
-        <UserAvatar visible={showAvatar} />
+        <UserAvatar visible={showAvatar} avatarId={userAvatarId} />
       </div>
     );
   }
@@ -661,7 +791,33 @@ function ChatBubble({ bubble, showAvatar }: { bubble: Bubble; showAvatar: boolea
             {bubble.text}
           </div>
         </div>
-        <UserAvatar visible={showAvatar} />
+        <UserAvatar visible={showAvatar} avatarId={userAvatarId} />
+      </div>
+    );
+  }
+
+  // interpretation — neutral restatement shown in its own styled bubble
+  if (bubble.role === "interpretation") {
+    return (
+      <div className="flex animate-fadeInUp items-start gap-2.5">
+        <InterviewerAvatar visible={showAvatar} />
+        <div className="max-w-[78%]">
+          {showAvatar && (
+            <div className="mb-1.5 text-xs font-semibold" style={{ color: "var(--avatar-ai-icon)" }}>
+              Here's how I understood it
+            </div>
+          )}
+          <div
+            className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed border"
+            style={{
+              background: "var(--bg-interpret)",
+              color: "var(--text-interpret)",
+              borderColor: "var(--bg-interpret-border)",
+            }}
+          >
+            {bubble.text}
+          </div>
+        </div>
       </div>
     );
   }
