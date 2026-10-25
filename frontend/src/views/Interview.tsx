@@ -24,6 +24,7 @@ import {
 import type { Expression } from "../components/ComicCharacters";
 import { BubbleTail, SpeakerTurn, ThinkingBubble, type Speaker } from "../components/ComicChat";
 import { api } from "../api";
+import { ResponseTimer } from "../components/ResponseTimer";
 import { useInterviewerVoice, useSpeechRecognition } from "../speech/useSpeech";
 import {
   loadVoiceSettings,
@@ -43,9 +44,12 @@ interface Props {
   picker: React.ReactNode;
 }
 
+const OVERTIME_NOTICE =
+  "Time's up, but take the time you need. The longer you go, the more points it'll cost.";
+
 interface Bubble {
   id: string;
-  role: "interviewer" | "candidate" | "clarify_q" | "clarify_a" | "interpretation";
+  role: "interviewer" | "candidate" | "clarify_q" | "clarify_a" | "interpretation" | "notice";
   text: string;
   round: number;
 }
@@ -81,6 +85,11 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   const [timerActive, setTimerActive] = useState(false);
   const [remaining, setRemaining] = useState(90);
   const roundActiveSecondsRef = useRef(0); // active seconds spent this round
+  // Overtime: frozen at the first submit; heads-up shown once per section.
+  const overtimeAtSubmitRef = useRef(0);
+  const overtimeNoticeRoundRef = useRef(0);
+  const answerRef = useRef("");
+  answerRef.current = answer;
 
   // Clarification
   const [clarifyMode, setClarifyMode] = useState(false);
@@ -131,6 +140,7 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     ]);
     setAnswer("");
     roundActiveSecondsRef.current = 0;
+    overtimeAtSubmitRef.current = 0;
     setRemaining(state.response_seconds_per_round);
     setTimerActive(false);
 
@@ -154,12 +164,10 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   }, [bubbles, rec.interim, processing, interpreting, interpretation]);
 
   // ---- response countdown ----
+  // Running out of time no longer submits: the timer keeps going into overtime
+  // (negative `remaining`) and that section loses points by tier.
   useEffect(() => {
     if (!timerActive || processing) return;
-    if (remaining <= 0) {
-      handleSubmit(true);
-      return;
-    }
     const id = setTimeout(() => {
       setRemaining((r) => r - 1);
       roundActiveSecondsRef.current += 1;
@@ -167,6 +175,25 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timerActive, remaining, processing]);
+
+  // ---- one friendly heads-up when a section goes into overtime ----
+  useEffect(() => {
+    if (!state || !timerActive || remaining > 0) return;
+    const round = state.current_round;
+    if (overtimeNoticeRoundRef.current === round) return;
+    overtimeNoticeRoundRef.current = round;
+    setBubbles((b) => [...b, { id: `ot-${round}`, role: "notice", text: OVERTIME_NOTICE, round }]);
+    if (interviewerMuted) return;
+    // Pause the mic so the spoken heads-up isn't transcribed into the answer.
+    const resumeMic = rec.listening;
+    if (resumeMic) rec.stop();
+    speak(OVERTIME_NOTICE, () => {
+      if (resumeMic && rec.supported && !micMuted) {
+        rec.start((full) => setAnswer(full), answerRef.current);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, timerActive]);
 
   // ---- global completion check ----
   useEffect(() => {
@@ -228,6 +255,11 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     rec.stop();
     const round = state.current_round;
     const text = answer.trim();
+
+    // The section timer stops at the first submit; confirmation and any
+    // follow-up clarification time don't count toward overtime.
+    setTimerActive(false);
+    overtimeAtSubmitRef.current = Math.max(overtimeAtSubmitRef.current, -remaining, 0);
 
     // If timed out, skip interpretation and submit directly
     if (timedOut) {
@@ -321,6 +353,7 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
           roundActiveSecondsRef.current,
           state.response_seconds_per_round
         ),
+        overtime_seconds: overtimeAtSubmitRef.current,
       });
       setState(next);
       setAnswer("");
@@ -416,9 +449,6 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     );
   }
 
-  const timerPct = (remaining / state.response_seconds_per_round) * 100;
-  const timerTone =
-    remaining <= 15 ? "text-rose-400" : remaining <= 30 ? "text-amber-300" : "text-teal-soft";
   const clarifyLeft =
     state.max_clarifications_per_round - state.clarifications_used_this_round;
   const micDenied = Boolean(rec.error && /denied|not-allowed/i.test(rec.error));
@@ -580,37 +610,11 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
             hint="mute to skip"
           />
         </div>
-        <div className="flex items-center gap-3">
-          <div className={`text-right ${timerTone}`}>
-            <div className="text-xs font-medium text-slate-400">Response time</div>
-            <div className="text-2xl font-bold tabular-nums">
-              {formatTime(remaining)}
-            </div>
-          </div>
-          <div className="relative h-12 w-12">
-            <svg className="h-12 w-12 -rotate-90" viewBox="0 0 36 36">
-              <circle
-                cx="18"
-                cy="18"
-                r="16"
-                fill="none"
-                stroke="rgba(255,255,255,0.08)"
-                strokeWidth="3"
-              />
-              <circle
-                cx="18"
-                cy="18"
-                r="16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeDasharray={`${(timerPct / 100) * 100.5} 100.5`}
-                strokeLinecap="round"
-                className={timerTone}
-              />
-            </svg>
-          </div>
-        </div>
+        <ResponseTimer
+          remaining={remaining}
+          limit={state.response_seconds_per_round}
+          tiers={state.overtime_tiers ?? []}
+        />
       </div>
 
       {(rec.error || loadError) && (
@@ -772,6 +776,7 @@ const BUBBLE_STYLE: Record<Bubble["role"], { variant: string; fill: string; labe
   clarify_a: { variant: "comic-bubble--ai", fill: "var(--bg-bubble-ai)", label: "Clarification" },
   interpretation: { variant: "comic-bubble--interpret", fill: "var(--bg-interpret)", label: "Here's how I understood it" },
   candidate: { variant: "comic-bubble--user", fill: "var(--bg-bubble-user)" },
+  notice: { variant: "comic-bubble--ai", fill: "var(--bg-bubble-ai)", label: "Heads-up" },
   clarify_q: { variant: "comic-bubble--plain", fill: "var(--bg-panel)", label: "Clarifying question" },
 };
 

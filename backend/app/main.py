@@ -38,6 +38,7 @@ from .models import (
 )
 from .storage import HistoryStore
 from .trends import compute_trends
+from .overtime import scaled_tiers
 from .walkthrough import answer_followup, build_walkthrough
 
 import threading
@@ -81,6 +82,7 @@ def _state(session: Session) -> SimulationStateResponse:
         current_turn=session.current_turn,
         is_demo=session.is_demo,
         report_ready=session.report_ready,
+        overtime_tiers=scaled_tiers(),
     )
 
 
@@ -179,6 +181,7 @@ def respond(session_id: str, req: RespondRequest) -> RespondResponse:
             response=req.response.strip(),
             timed_out=req.timed_out,
             elapsed_active_seconds=req.elapsed_active_seconds,
+            overtime_seconds=req.overtime_seconds,
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))

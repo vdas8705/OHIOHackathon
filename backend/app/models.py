@@ -145,6 +145,8 @@ class DecisionRecord(BaseModel):
     classification: Optional["QuestionClassification"] = None
     # Clarifying exchanges within this round: [{"question":..,"answer":..}]
     clarifications: list[dict] = Field(default_factory=list)
+    # Seconds the candidate kept working after this section's timer hit zero.
+    overtime_seconds: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -237,11 +239,13 @@ class PracticeRecommendation(BaseModel):
 # --------------------------------------------------------------------------- #
 class CategoryScore(BaseModel):
     name: str
-    score: int
+    score: int  # final, after any overtime deduction
     max_score: int
     explanation: str
     evidence: list[str] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list)
+    # This category's share of the session's overtime deductions (by weight).
+    overtime_deduction: int = 0
 
 
 class RoundReport(BaseModel):
@@ -264,6 +268,15 @@ class RoundReport(BaseModel):
         "Developing"
     )
     clarifications: list[dict] = Field(default_factory=list)
+    # Section score + overtime (each question is a timed section worth an
+    # equal share of the 100 points; see overtime.py).
+    section_points_possible: int = 0
+    section_points_before_overtime: int = 0
+    section_points: int = 0  # final
+    overtime_seconds: int = 0
+    overtime_tier: int = 0  # 0 = on time
+    overtime_penalty_pct: int = 0
+    overtime_deduction: int = 0
 
 
 class PerformanceReport(BaseModel):
@@ -289,6 +302,10 @@ class PerformanceReport(BaseModel):
     question_type_stats: list[QuestionTypeStat] = Field(default_factory=list)
     weaknesses: list[Weakness] = Field(default_factory=list)
     practice_recommendations: list[PracticeRecommendation] = Field(default_factory=list)
+    # --- overtime ---
+    overall_score_before_overtime: Optional[int] = None
+    overtime_points_lost: int = 0
+    overtime_tiers: list[dict] = Field(default_factory=list)
 
 
 class QuestionReview(BaseModel):
@@ -380,6 +397,9 @@ class RespondRequest(BaseModel):
     response: str = Field(default="", max_length=10000)
     timed_out: bool = False
     elapsed_active_seconds: int = Field(default=0, ge=0)
+    # Time past this section's limit before the first submit (excludes
+    # clarifications and the answer-confirmation step).
+    overtime_seconds: int = Field(default=0, ge=0, le=3600)
 
 
 class InterpretRequest(BaseModel):
@@ -423,6 +443,8 @@ class SimulationStateResponse(BaseModel):
     current_turn: Optional[InterviewerTurn] = None
     is_demo: bool
     report_ready: bool
+    # Scaled overtime tiers for this section's limit (see overtime.py).
+    overtime_tiers: list[dict] = Field(default_factory=list)
 
 
 class ClarifyResponse(BaseModel):

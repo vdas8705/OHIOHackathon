@@ -36,6 +36,7 @@ export interface SimulationState {
   current_turn: InterviewerTurn | null;
   is_demo: boolean;
   report_ready: boolean;
+  overtime_tiers?: OvertimeTier[];
 }
 
 export interface CategoryScore {
@@ -45,6 +46,15 @@ export interface CategoryScore {
   explanation: string;
   evidence: string[];
   improvements: string[];
+  /** This category's share of overtime deductions (already subtracted from score). */
+  overtime_deduction?: number;
+}
+
+export interface OvertimeTier {
+  tier: number;
+  starts_after_seconds: number;
+  ends_at_seconds: number | null; // null = maximum tier
+  penalty_pct: number;
 }
 
 export interface RoundReport {
@@ -63,6 +73,14 @@ export interface RoundReport {
   why_it_mattered?: string;
   performance_level?: "Strong" | "Developing" | "Needs Improvement" | "Not attempted";
   clarifications?: { question: string; answer: string }[];
+  // Section score + overtime (absent on older reports)
+  section_points_possible?: number;
+  section_points_before_overtime?: number;
+  section_points?: number;
+  overtime_seconds?: number;
+  overtime_tier?: number;
+  overtime_penalty_pct?: number;
+  overtime_deduction?: number;
 }
 
 export interface QuestionPerformance {
@@ -121,6 +139,10 @@ export interface PerformanceReport {
   question_type_stats?: QuestionTypeStat[];
   weaknesses?: Weakness[];
   practice_recommendations?: PracticeRecommendation[];
+  // Overtime (absent on older reports)
+  overall_score_before_overtime?: number | null;
+  overtime_points_lost?: number;
+  overtime_tiers?: OvertimeTier[];
 }
 
 export interface CreateSimulationInput {

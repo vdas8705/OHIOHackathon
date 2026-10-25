@@ -24,7 +24,36 @@ import {
   ListChecks,
 } from "lucide-react";
 import { Panel, Badge, formatTime } from "./ui";
-import type { CompletionStatus, PerformanceReport } from "../types";
+import type { CompletionStatus, PerformanceReport, RoundReport } from "../types";
+
+// Overtime markers use the theme's warning pair (AA-checked in every theme).
+const OT_STYLE = { background: "var(--warn-bg)", color: "var(--warn-text)" } as const;
+
+function OvertimeChip({ points, title }: { points: number; title?: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold"
+      style={OT_STYLE}
+      title={title}
+    >
+      <Clock className="h-3 w-3" aria-hidden="true" />−{points}
+      <span className="sr-only"> points for overtime</span>
+    </span>
+  );
+}
+
+/** "Question 2: 11/20 − 3 (1:12 over · tier 3, −30%) = 8/20" */
+function sectionLine(r: RoundReport): string {
+  const possible = r.section_points_possible ?? 0;
+  const before = r.section_points_before_overtime ?? 0;
+  const after = r.section_points ?? before;
+  if (!r.overtime_seconds) return `Question ${r.round_number}: ${after}/${possible} (on time)`;
+  return (
+    `Question ${r.round_number}: ${before}/${possible} − ${r.overtime_deduction ?? 0} ` +
+    `(${formatTime(r.overtime_seconds)} over · tier ${r.overtime_tier}, −${r.overtime_penalty_pct}%) ` +
+    `= ${after}/${possible}`
+  );
+}
 
 const STATUS_META: Record<
   CompletionStatus,
@@ -79,6 +108,9 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
     (report.schema_version ?? 1) < 2 || !report.categories?.length;
 
   const status = STATUS_META[report.completion_status] ?? STATUS_META.completed;
+  const otLost = report.overtime_points_lost ?? 0;
+  const hasSectionScores = report.round_reports.some((r) => (r.section_points_possible ?? 0) > 0);
+  const anyOvertime = report.round_reports.some((r) => (r.overtime_seconds ?? 0) > 0);
   const partial =
     report.completion_status !== "completed" || report.rounds_attempted < 5;
 
@@ -141,6 +173,12 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
               Active {formatTime(report.total_active_seconds)}
             </Badge>
           </div>
+          {otLost > 0 && (
+            <p className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold" style={OT_STYLE}>
+              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+              Includes −{otLost} for overtime (was {report.overall_score_before_overtime})
+            </p>
+          )}
           {partial && (
             <p className="mt-4 text-xs text-amber-300/90">
               Partial assessment — {report.rounds_attempted} of 5 rounds
@@ -175,14 +213,49 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
             {(report.categories ?? []).map((c) => (
               <div key={c.name} className="flex items-center justify-between">
                 <span className="truncate">{radarLabel(c.name)}</span>
-                <span className="font-semibold text-slate-300">
+                <span className="flex items-center gap-1 font-semibold text-slate-300">
                   {c.score}/{c.max_score}
+                  {(c.overtime_deduction ?? 0) > 0 && <OvertimeChip points={c.overtime_deduction!} />}
                 </span>
               </div>
             ))}
           </div>
+          {otLost > 0 && (
+            <p className="mt-3 text-xs text-slate-400">
+              Scores are shown after overtime deductions. Each chip with a clock is points lost to
+              overtime, spread across categories by their weight.
+            </p>
+          )}
         </Panel>
       </div>
+
+      {/* Section scores + overtime deductions */}
+      {hasSectionScores && anyOvertime && (
+        <Panel className="print-light mt-5 p-6">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-slate-400">
+            <Clock className="h-4 w-4" aria-hidden="true" /> Time and overtime by question
+          </h2>
+          <p className="mt-2 text-xs text-slate-400">
+            Each question is worth {report.round_reports[0]?.section_points_possible} points. Going
+            over a question's time only reduces that question's points.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-sm">
+            {report.round_reports.map((r) => (
+              <li
+                key={r.round_number}
+                className={`rounded-lg px-3 py-1.5 ${r.overtime_deduction ? "font-semibold" : "text-slate-300"}`}
+                style={r.overtime_deduction ? OT_STYLE : undefined}
+              >
+                {r.overtime_deduction ? <Clock className="mr-1.5 inline h-3.5 w-3.5 align-[-2px]" aria-hidden="true" /> : null}
+                {sectionLine(r)}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm font-bold text-slate-200">
+            Total lost to overtime: {otLost} point{otLost === 1 ? "" : "s"}
+          </p>
+        </Panel>
+      )}
 
       {/* Summary */}
       {report.summary && (
@@ -214,6 +287,12 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
             <div className="mt-1 text-xs text-slate-500">
               {CATEGORY_BLURB[c.name]}
             </div>
+            {(c.overtime_deduction ?? 0) > 0 && (
+              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold" style={OT_STYLE}>
+                <Clock className="h-3 w-3" aria-hidden="true" />
+                Includes −{c.overtime_deduction} for overtime
+              </div>
+            )}
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
               <div
                 className="h-full rounded-full bg-teal-accent"
@@ -381,6 +460,9 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
                   </Badge>
                 )}
                 {r.timed_out && <Badge tone="amber">Timed out</Badge>}
+                {(r.overtime_deduction ?? 0) > 0 && (
+                  <OvertimeChip points={r.overtime_deduction!} title={`${formatTime(r.overtime_seconds ?? 0)} over time`} />
+                )}
               </span>
               <ChevronDown
                 className={`h-5 w-5 text-slate-400 transition-transform ${
@@ -391,6 +473,9 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
             {open === r.round_number && (
               <div className="space-y-3 border-t border-white/10 px-5 py-4 text-sm">
                 <Field label="Interviewer asked" value={r.question} />
+                {(r.section_points_possible ?? 0) > 0 && (
+                  <Field label="Question score" value={sectionLine(r).replace(/^Question \d+: /, "")} />
+                )}
                 {(r.secondary_types?.length || r.competencies?.length) && (
                   <div className="flex flex-wrap gap-1.5">
                     {r.secondary_types?.map((t) => (

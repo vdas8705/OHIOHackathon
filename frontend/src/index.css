@@ -34,6 +34,12 @@
   --btn-ghost-bg:       rgba(255,255,255,0.05);
   --btn-ghost-text:     #e0e7ff;
   --btn-ghost-border:   rgba(255,255,255,0.1);
+  --warn-bg:             #3b2a06;
+  --warn-text:           #fde68a;
+  --warn-strong-bg:      #f59e0b;
+  --warn-strong-text:    #111827;
+  --warn-max-bg:         #fca5a5;
+  --warn-max-text:       #3b0a0a;
   --color-scheme:       dark;
 }
 
@@ -216,6 +222,37 @@ body {
   font-weight: 700;
 }
 
+/* Overtime timer: theme warning colors that escalate with each penalty tier.
+   Text pairs (--warn-*-bg / --warn-*-text) are AA-checked in every theme;
+   escalation also shows in border weight and filled pips, not color alone. */
+.comic-overtime {
+  min-width: 15rem;
+  max-width: 100%;
+  border: 2.5px solid currentColor;
+  border-radius: 10px 14px 9px 13px / 13px 9px 14px 10px;
+  padding: 6px 12px 7px;
+  box-shadow: 3px 3px 0 currentColor;
+}
+.comic-overtime--soft { background: var(--warn-bg); color: var(--warn-text); }
+.comic-overtime--strong { background: var(--warn-strong-bg); color: var(--warn-strong-text); }
+.comic-overtime--max { background: var(--warn-max-bg); color: var(--warn-max-text); }
+.comic-overtime[data-tier="2"] { border-width: 3.5px; }
+.comic-overtime[data-tier="3"] { border-width: 3px; }
+.comic-overtime[data-tier="4"] { border-width: 4px; box-shadow: 4px 4px 0 currentColor; }
+.comic-overtime[data-tier="5"] { border-width: 4.5px; box-shadow: 5px 5px 0 currentColor; animation: comicOvertimePulse 1.6s ease-in-out infinite; }
+@keyframes comicOvertimePulse {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-1.2deg); }
+}
+.comic-overtime__pips { display: flex; gap: 3px; }
+.comic-overtime__pips span {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+}
+.comic-overtime__pips span.is-on { background: currentColor; }
+
 /* Pop-in for new bubbles. */
 @keyframes comicPop {
   from { opacity: 0; transform: scale(0.9); }
@@ -256,6 +293,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .comic-overtime,
   .comic-talk-mouth,
   .comic-pop,
   .comic-think-dots circle,

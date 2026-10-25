@@ -63,6 +63,7 @@ export const api = {
       response: string;
       timed_out: boolean;
       elapsed_active_seconds: number;
+      overtime_seconds?: number;
     }
   ) =>
     request<{ state: SimulationState }>(`/simulations/${sessionId}/respond`, {

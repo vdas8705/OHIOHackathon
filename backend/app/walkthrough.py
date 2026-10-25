@@ -58,10 +58,29 @@ def _lower_first(text: str) -> str:
     return text[:1].lower() + text[1:]
 
 
+def _spoken_duration(seconds: int) -> str:
+    m, s = divmod(int(seconds), 60)
+    parts = []
+    if m:
+        parts.append(f"{m} minute" + ("s" if m != 1 else ""))
+    if s:
+        parts.append(f"{s} second" + ("s" if s != 1 else ""))
+    return " and ".join(parts) or "a moment"
+
+
 def round_facts(rr: dict) -> dict[str, Any]:
     level = rr.get("performance_level") or "Developing"
     correctness = correctness_for(level)
+    overtime = None
+    if rr.get("overtime_deduction"):
+        overtime = {
+            "time_over": _spoken_duration(rr.get("overtime_seconds", 0)),
+            "points_lost": rr["overtime_deduction"],
+            "section_points": f"{rr.get('section_points_before_overtime')} became "
+            f"{rr.get('section_points')} out of {rr.get('section_points_possible')}",
+        }
     return {
+        "overtime_deduction": overtime,
         "round_number": rr.get("round_number"),
         "question": rr.get("question", ""),
         "candidate_answer": rr.get("response", ""),
@@ -127,6 +146,13 @@ def _template_question(rr: dict, index: int) -> str:
         "not quite right": "That one was not quite right.",
     }[f["verdict_word"]]
     parts = [f"Question {index}. This one asked: {reminder}", answered + clarified, verdict]
+    ot = f["overtime_deduction"]
+    if ot:
+        pts = ot["points_lost"]
+        parts.append(
+            f"You went {ot['time_over']} over time here, so this question lost {pts} "
+            f"point{'s' if pts != 1 else ''}. That's easy to tighten up with practice."
+        )
     if f["what_went_well"]:
         parts.append(f"What you did well: {_lower_first(_sentence(f['what_went_well']))}")
     if f["what_was_missed"]:

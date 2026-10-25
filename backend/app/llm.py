@@ -187,7 +187,9 @@ Produce:
   seconds). It must cover, in this order: which question it is with a short reminder of what \
   was asked; how the candidate answered, including any clarifications they gave; the verdict \
   using exactly the verdict word provided ("correct", "partly correct", or "not quite right"); \
-  what they did well; what they missed and the better approach, with a brief why.
+  what they did well; what they missed and the better approach, with a brief why. If a \
+  round has an "overtime_deduction", kindly mention in one short sentence how far over time \
+  they went and how many points it cost, without scolding.
 - focus_points: one to three short, specific things to work on, drawn from the data.
 - wrap_up: two to four sentences that mention the focus points conversationally and end with \
   an encouraging line followed by exactly: "Here are your full results."

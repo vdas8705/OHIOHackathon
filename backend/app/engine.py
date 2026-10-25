@@ -13,6 +13,7 @@ from typing import Optional
 from . import demo_content as demo
 from .config import Settings
 from .llm import LLMError, LLMService
+from .overtime import SECTION_POINTS, allocate_section_points, distribute_deduction, scaled_tiers, tier_for
 from .models import (
     MAX_ACTIVE_SECONDS,
     MAX_CLARIFICATIONS_PER_ROUND,
@@ -246,6 +247,7 @@ class Engine:
         response: str,
         timed_out: bool,
         elapsed_active_seconds: int,
+        overtime_seconds: int = 0,
     ) -> Session:
         if not session.is_active:
             # Idempotent: return current state without advancing.
@@ -297,6 +299,7 @@ class Engine:
                 environment_after=env_after,
                 classification=classification,
                 clarifications=clarifications,
+                overtime_seconds=max(0, int(overtime_seconds)),
             )
         )
         session.completed_rounds = round_number
@@ -598,6 +601,35 @@ class Engine:
         )
         recommendations = self._build_recommendations(weaknesses, question_type_stats)
 
+        # Overtime: each question is a timed section worth an equal share of the
+        # 100 points. Deductions come only from the section that ran over.
+        overall_before = overall
+        section_points = allocate_section_points(
+            overall_before,
+            [perf_by_round[d.round_number].indicator if d.round_number in perf_by_round else 0
+             for d in session.decision_history],
+        )
+        for rr, d, base in zip(round_reports, session.decision_history, section_points):
+            tier, pct = tier_for(d.overtime_seconds)
+            deduction = min(base, round(SECTION_POINTS * pct / 100))
+            rr.section_points_possible = SECTION_POINTS
+            rr.section_points_before_overtime = base
+            rr.section_points = base - deduction
+            rr.overtime_seconds = d.overtime_seconds
+            rr.overtime_tier = tier
+            rr.overtime_penalty_pct = pct
+            rr.overtime_deduction = deduction
+        points_lost = sum(rr.overtime_deduction for rr in round_reports)
+        if points_lost:
+            # The radar shows categories, so spread the loss across them by weight.
+            shares = distribute_deduction(
+                points_lost, [c.max_score for c in categories], [c.score for c in categories]
+            )
+            for c, share in zip(categories, shares):
+                c.overtime_deduction = share
+                c.score -= share
+            overall = max(0, min(100, sum(c.score for c in categories)))
+
         return PerformanceReport(
             overall_score=overall,
             completion_status=session.completion_status,
@@ -617,6 +649,9 @@ class Engine:
             question_type_stats=question_type_stats,
             weaknesses=weaknesses,
             practice_recommendations=recommendations,
+            overall_score_before_overtime=overall_before,
+            overtime_points_lost=points_lost,
+            overtime_tiers=scaled_tiers(),
         )
 
     # ----------------- per-question + weakness analysis ------------------ #
