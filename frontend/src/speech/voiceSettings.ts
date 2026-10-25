@@ -1,4 +1,5 @@
-// Persisted interviewer voice preferences (on/off, speed, and Kokoro voice).
+// Persisted interviewer voice preferences (speed and Kokoro voice). The voice
+// always starts unmuted: muting lasts only for the current session.
 
 export const KOKORO_VOICES = [
   { id: "af_heart", name: "Heart", description: "Warm · American" },
@@ -29,7 +30,7 @@ export function loadVoiceSettings(): VoiceSettings {
     const rate = Number(parsed.rate);
     const voice = KOKORO_VOICES.find((v) => v.id === parsed.voice)?.id;
     return {
-      enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : DEFAULTS.enabled,
+      enabled: true, // always start unmuted, even if it was muted last time
       rate: Number.isFinite(rate)
         ? Math.min(MAX_VOICE_RATE, Math.max(MIN_VOICE_RATE, rate))
         : DEFAULTS.rate,

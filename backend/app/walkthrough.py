@@ -191,6 +191,11 @@ def build_walkthrough(report: dict, llm: Optional[LLMService], use_llm: bool) ->
 
     intro = _template_intro(report, counts)
     wrap_up = _template_wrap_up(focus)
+    delivery_tip = ((report.get("delivery_summary") or {}).get("tips") or [None])[0]
+    if delivery_tip:
+        wrap_up = wrap_up.replace(
+            " Here are your full results.", f" On delivery: {_lower_first(delivery_tip)} Here are your full results."
+        )
     spoken = dict(template_questions)
     generated_by = "template"
 
@@ -201,6 +206,7 @@ def build_walkthrough(report: dict, llm: Optional[LLMService], use_llm: bool) ->
             "verdict_counts": counts,
             "summary_on_results_screen": report.get("summary", ""),
             "focus_points_to_use": focus,
+            "delivery_tip_for_wrap_up": delivery_tip,
             "rounds": [round_facts(rr) for rr in rounds],
         }
         try:

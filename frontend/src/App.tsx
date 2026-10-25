@@ -12,6 +12,7 @@ import { useTheme } from "./useTheme";
 import { ThemePicker } from "./components/ThemePicker";
 import { useSessionHistory } from "./useSessionHistory";
 import { NUM_AVATARS } from "./components/PersonAvatars";
+import { voiceEngine } from "./speech/voiceEngine";
 
 type View =
   | "landing"
@@ -56,6 +57,15 @@ export default function App() {
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
+  }, []);
+
+  // Start loading the interviewer voice as soon as the browser is idle, so
+  // it's ready (or loaded from cache) well before the first question.
+  useEffect(() => {
+    const start = () => void voiceEngine.preload();
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    if (w.requestIdleCallback) w.requestIdleCallback(start, { timeout: 2000 });
+    else setTimeout(start, 800);
   }, []);
 
   const handleAvatarSelect = useCallback((id: number) => {

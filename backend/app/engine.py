@@ -13,6 +13,7 @@ from typing import Optional
 from . import demo_content as demo
 from .config import Settings
 from .llm import LLMError, LLMService
+from .delivery import summarize as summarize_delivery
 from .overtime import SECTION_POINTS, allocate_section_points, distribute_deduction, scaled_tiers, tier_for
 from .models import (
     MAX_ACTIVE_SECONDS,
@@ -248,6 +249,7 @@ class Engine:
         timed_out: bool,
         elapsed_active_seconds: int,
         overtime_seconds: int = 0,
+        delivery=None,
     ) -> Session:
         if not session.is_active:
             # Idempotent: return current state without advancing.
@@ -300,6 +302,7 @@ class Engine:
                 classification=classification,
                 clarifications=clarifications,
                 overtime_seconds=max(0, int(overtime_seconds)),
+                delivery=delivery,
             )
         )
         session.completed_rounds = round_number
@@ -619,6 +622,10 @@ class Engine:
             rr.overtime_tier = tier
             rr.overtime_penalty_pct = pct
             rr.overtime_deduction = deduction
+            # Additive coaching / decision-map data (never affects scores).
+            rr.delivery = d.delivery
+            rr.environment_after = d.environment_after.model_dump() if d.environment_after else None
+            rr.alternative_outcomes = self._alternative_outcomes(session, d.round_number)
         points_lost = sum(rr.overtime_deduction for rr in round_reports)
         if points_lost:
             # The radar shows categories, so spread the loss across them by weight.
@@ -652,7 +659,15 @@ class Engine:
             overall_score_before_overtime=overall_before,
             overtime_points_lost=points_lost,
             overtime_tiers=scaled_tiers(),
+            delivery_summary=summarize_delivery([d.delivery for d in session.decision_history]),
         )
+
+    def _alternative_outcomes(self, session: Session, round_number: int) -> dict[str, str]:
+        """What a strong / weak / incomplete answer leads to in this round."""
+        table = demo.DEMO_CONSEQUENCES.get(round_number) if session.is_demo else None
+        if table:
+            return {k: str(v) for k, v in table.items()}
+        return session.blueprint.consequences.model_dump()
 
     # ----------------- per-question + weakness analysis ------------------ #
     def _round_feedback(self, session, d, quality: str) -> dict[str, str]:

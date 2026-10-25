@@ -25,6 +25,8 @@ import type { Expression } from "../components/ComicCharacters";
 import { BubbleTail, SpeakerTurn, ThinkingBubble, type Speaker } from "../components/ComicChat";
 import { api } from "../api";
 import { ResponseTimer } from "../components/ResponseTimer";
+import { DeliveryMeter } from "../components/DeliveryMeter";
+import { DeliveryTracker, type DeliveryMetrics } from "../speech/delivery";
 import { useInterviewerVoice, useSpeechRecognition } from "../speech/useSpeech";
 import {
   loadVoiceSettings,
@@ -79,6 +81,14 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     voiceId
   );
   const rec = useSpeechRecognition();
+
+  // Delivery coaching (voice answers only; never affects the score).
+  const deliveryRef = useRef(new DeliveryTracker());
+  const [delivery, setDelivery] = useState<DeliveryMetrics | null>(null);
+  const onSpeechActivity = useCallback((chunk: string, isFinal: boolean) => {
+    deliveryRef.current.activity(chunk, isFinal);
+    if (isFinal) setDelivery(deliveryRef.current.metrics());
+  }, []);
 
   // Response composition
   const [answer, setAnswer] = useState("");
@@ -141,6 +151,8 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     setAnswer("");
     roundActiveSecondsRef.current = 0;
     overtimeAtSubmitRef.current = 0;
+    deliveryRef.current.reset();
+    setDelivery(null);
     setRemaining(state.response_seconds_per_round);
     setTimerActive(false);
 
@@ -176,6 +188,16 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timerActive, remaining, processing]);
 
+  // ---- delivery: close sessions when the mic stops; refresh pace while talking ----
+  useEffect(() => {
+    if (!rec.listening) {
+      deliveryRef.current.end();
+      return;
+    }
+    const id = setInterval(() => setDelivery(deliveryRef.current.metrics()), 1500);
+    return () => clearInterval(id);
+  }, [rec.listening]);
+
   // ---- one friendly heads-up when a section goes into overtime ----
   useEffect(() => {
     if (!state || !timerActive || remaining > 0) return;
@@ -189,7 +211,8 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     if (resumeMic) rec.stop();
     speak(OVERTIME_NOTICE, () => {
       if (resumeMic && rec.supported && !micMuted) {
-        rec.start((full) => setAnswer(full), answerRef.current);
+        deliveryRef.current.begin();
+        rec.start((full) => setAnswer(full), answerRef.current, onSpeechActivity);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -214,7 +237,8 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
 
   const startListening = useCallback(() => {
     if (!rec.supported || micMuted) return;
-    rec.start((full) => setAnswer(full), answer);
+    deliveryRef.current.begin();
+    rec.start((full) => setAnswer(full), answer, onSpeechActivity);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rec, micMuted, answer]);
 
@@ -358,6 +382,7 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
           state.response_seconds_per_round
         ),
         overtime_seconds: overtimeAtSubmitRef.current,
+        delivery: deliveryRef.current.metrics() ?? undefined,
       });
       setState(next);
       setAnswer("");
@@ -675,6 +700,7 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
                 className="min-h-[70px] flex-1 resize-y rounded-xl border border-white/10 bg-navy-900/60 px-4 py-3 text-sm focus:border-teal-accent/50 focus:outline-none"
               />
             </div>
+            {rec.supported && <DeliveryMeter metrics={delivery} listening={rec.listening} />}
 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">

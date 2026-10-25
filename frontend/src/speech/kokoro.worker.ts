@@ -9,12 +9,33 @@
 //      { type: "audio", id, gen, audio, sampleRate }
 //      { type: "generate-error", id, gen, message }
 
+import "./streamAsyncIterator"; // must stay first: Safari fix for the phonemizer
 import { KokoroTTS, type GenerateOptions } from "kokoro-js";
 
+// Send Hugging Face downloads through the app's same-origin /hf proxy (see
+// vite.config.ts), falling back to a direct request if the proxy isn't there.
+// The library still caches by the original URL, so existing caches stay valid.
+const HF_ORIGIN = "https://huggingface.co/";
+const nativeFetch = self.fetch.bind(self);
+self.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (url.startsWith(HF_ORIGIN)) {
+    try {
+      const proxied = await nativeFetch(`${self.location.origin}/hf/${url.slice(HF_ORIGIN.length)}`, init);
+      if (proxied.ok) return proxied;
+    } catch {
+      /* fall through to a direct request */
+    }
+  }
+  return nativeFetch(input, init);
+};
+
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
-const DTYPE = "q4";
 
 type Device = "webgpu" | "wasm";
+// q4 = 4-bit weights (305 MB). q4f16 = same 4-bit weights with 16-bit math
+// (155 MB, about half the download) — used on GPUs with 16-bit shader support.
+type Dtype = "q4" | "q4f16";
 type VoiceId = NonNullable<GenerateOptions["voice"]>;
 
 interface Job {
@@ -36,10 +57,24 @@ let cancelledThrough = 0;
 const queue: Job[] = [];
 let working = false;
 
-async function webgpuAvailable(): Promise<boolean> {
+type GpuAdapter = { features: { has(name: string): boolean } };
+
+/** null = no WebGPU; otherwise whether 16-bit shaders are supported. */
+async function webgpuSupport(): Promise<{ f16: boolean } | null> {
   try {
-    const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-    return Boolean(gpu && (await gpu.requestAdapter()));
+    const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<GpuAdapter | null> } }).gpu;
+    const adapter = gpu ? await gpu.requestAdapter() : null;
+    return adapter ? { f16: adapter.features.has("shader-f16") } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True if this model build is already in the browser cache (loads in ~2s). */
+async function isCached(dtype: Dtype): Promise<boolean> {
+  try {
+    const cache = await caches.open("transformers-cache");
+    return Boolean(await cache.match(`https://huggingface.co/${MODEL_ID}/resolve/main/onnx/model_${dtype}.onnx`));
   } catch {
     return false;
   }
@@ -65,9 +100,9 @@ function onProgress(info: { status: string; file?: string; loaded?: number; tota
 }
 
 /** Load on one device and prove it produces real audio before trusting it. */
-async function tryLoad(device: Device): Promise<KokoroTTS> {
+async function tryLoad(device: Device, dtype: Dtype): Promise<KokoroTTS> {
   const model = await KokoroTTS.from_pretrained(MODEL_ID, {
-    dtype: DTYPE,
+    dtype,
     device,
     progress_callback: onProgress as never,
   });
@@ -83,13 +118,28 @@ async function tryLoad(device: Device): Promise<KokoroTTS> {
   return model;
 }
 
+// Safari: the voice runtime's WebGPU support there is unreliable, while the
+// WebAssembly path is verified (and multi-threaded thanks to the isolation
+// headers), so Safari goes straight to WebAssembly.
+const IS_SAFARI = /^((?!chrome|chromium|crios|edg|android).)*safari/i.test(navigator.userAgent);
+
 async function load() {
-  const devices: Device[] = (await webgpuAvailable()) ? ["webgpu", "wasm"] : ["wasm"];
+  const gpu = IS_SAFARI ? null : await webgpuSupport();
+  const plans: { device: Device; dtype: Dtype }[] = [];
+  if (gpu) {
+    // Prefer the smaller q4f16 download, unless the larger q4 build is
+    // already cached (then it's the fastest option and nothing downloads).
+    const useF16 = gpu.f16 && !(await isCached("q4"));
+    plans.push({ device: "webgpu", dtype: useF16 ? "q4f16" : "q4" });
+  }
+  // WebAssembly runs 16-bit math slowly, so it always uses q4.
+  plans.push({ device: "wasm", dtype: "q4" });
+
   let lastError: unknown;
-  for (const device of devices) {
+  for (const { device, dtype } of plans) {
     try {
-      tts = await tryLoad(device);
-      ctx.postMessage({ type: "ready", device });
+      tts = await tryLoad(device, dtype);
+      ctx.postMessage({ type: "ready", device, dtype });
       void drain();
       return;
     } catch (e) {

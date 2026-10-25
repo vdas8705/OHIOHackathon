@@ -200,7 +200,7 @@ export function VoiceSettingsButton({
     engine.status === "loading"
       ? `Previews unlock once the voice is ready (${engine.progress}%).`
       : engine.status === "fallback"
-      ? "This device can't run the natural voices, so a simpler voice is used."
+      ? `Using the browser's voice instead of the natural voices. ${engine.reason ?? ""}`.trim()
       : engine.status === "idle"
       ? "Turn the voice on to download the natural voices."
       : null;

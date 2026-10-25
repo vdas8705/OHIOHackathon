@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Panel, Badge, formatTime } from "./ui";
 import type { CompletionStatus, PerformanceReport, RoundReport } from "../types";
+import { displayPhrase } from "../speech/delivery";
 
 // Overtime markers use the theme's warning pair (AA-checked in every theme).
 const OT_STYLE = { background: "var(--warn-bg)", color: "var(--warn-text)" } as const;
@@ -439,6 +440,9 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
         </>
       )}
 
+      {/* Voice delivery coaching (only when some answers were spoken) */}
+      {report.delivery_summary && <DeliverySection report={report} />}
+
       {/* Section 5: Detailed question breakdown (non-binary) */}
       <h2 className="mt-8 text-lg font-bold">Detailed question breakdown</h2>
       <div className="mt-3 space-y-3">
@@ -491,6 +495,9 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
                   </div>
                 )}
                 <Field label="Your response" value={r.response} accent />
+                {r.delivery && r.delivery.voice_words > 0 && (
+                  <Field label="Delivery" value={deliveryLine(r.delivery)} />
+                )}
                 {r.clarifications && r.clarifications.length > 0 && (
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -615,6 +622,51 @@ function InsightCard({
           Not enough evidence to report here.
         </p>
       )}
+    </Panel>
+  );
+}
+
+function deliveryLine(d: NonNullable<RoundReport["delivery"]>): string {
+  const parts = [
+    d.wpm != null ? `${d.wpm} words per minute` : "pace not measured",
+    `${d.filler_count} filler word${d.filler_count === 1 ? "" : "s"}`,
+    `${d.hedge_count} hedge${d.hedge_count === 1 ? "" : "s"}`,
+    `${d.long_pauses} long pause${d.long_pauses === 1 ? "" : "s"}`,
+  ];
+  return parts.join(" · ");
+}
+
+function DeliverySection({ report }: { report: PerformanceReport }) {
+  const d = report.delivery_summary!;
+  const phrases = (list: { phrase: string; count: number }[]) =>
+    list.length ? list.map((p) => `"${displayPhrase(p.phrase)}" ×${p.count}`).join(", ") : "none";
+  const stats = [
+    { label: "Average pace", value: d.average_wpm != null ? `${d.average_wpm} wpm` : "—", note: d.pace_label },
+    { label: "Filler words", value: String(d.filler_count), note: phrases(d.top_fillers) },
+    { label: "Hedging", value: String(d.hedge_count), note: phrases(d.top_hedges) },
+    { label: "Long pauses", value: String(d.long_pauses), note: "gaps over 2.5 seconds" },
+  ];
+  return (
+    <Panel className="print-light mt-6 p-6">
+      <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">Delivery: how you spoke</h2>
+      <p className="mt-2 text-xs text-slate-400">
+        Measured from {d.answers_with_voice} spoken answer{d.answers_with_voice === 1 ? "" : "s"} ({d.total_words} words).
+        Coaching only: delivery doesn't change your score.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((s) => (
+          <div key={s.label} className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="text-xs text-slate-400">{s.label}</div>
+            <div className="mt-1 text-2xl font-bold text-slate-100">{s.value}</div>
+            <div className="mt-0.5 text-xs text-slate-400">{s.note}</div>
+          </div>
+        ))}
+      </div>
+      <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-slate-300">
+        {d.tips.map((t, i) => (
+          <li key={i}>{t}</li>
+        ))}
+      </ul>
     </Panel>
   );
 }

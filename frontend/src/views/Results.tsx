@@ -12,6 +12,7 @@ import {
 import { Button } from "../components/ui";
 import ReportBody from "../components/ReportBody";
 import TrendsPanel from "../components/TrendsPanel";
+import DecisionMap from "../components/DecisionMap";
 import { api } from "../api";
 import type { HistoryTrends, PerformanceReport } from "../types";
 
@@ -90,6 +91,9 @@ export default function Results({
       </header>
 
       <ReportBody report={report} />
+
+      {/* "What if" decision map (additive; loads on its own) */}
+      <DecisionMap sessionId={sessionId} />
 
       {/* Section 7: Historical progress */}
       {trends && <TrendsPanel trends={trends} />}

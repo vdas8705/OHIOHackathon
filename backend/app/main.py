@@ -39,6 +39,7 @@ from .models import (
 from .storage import HistoryStore
 from .trends import compute_trends
 from .overtime import scaled_tiers
+from .decision_map import build_decision_map
 from .walkthrough import answer_followup, build_walkthrough
 
 import threading
@@ -182,6 +183,7 @@ def respond(session_id: str, req: RespondRequest) -> RespondResponse:
             timed_out=req.timed_out,
             elapsed_active_seconds=req.elapsed_active_seconds,
             overtime_seconds=req.overtime_seconds,
+            delivery=req.delivery,
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -324,6 +326,30 @@ def walkthrough_ask(session_id: str, req: WalkthroughAskRequest) -> WalkthroughA
             )
             _save_walkthrough(session_id, existing)
     return WalkthroughAskResponse(answer=answer)
+
+
+# --------------------------------------------------------------------------- #
+# "What if" decision map (derived only from the saved report; cached + saved).
+# --------------------------------------------------------------------------- #
+_decision_map_cache: dict[str, dict] = {}
+
+
+@app.post("/api/decision-map/{session_id}")
+def decision_map(session_id: str) -> dict:
+    """Get (generating once if needed) the decision map for a session's results."""
+    with _walkthrough_lock(f"map:{session_id}"):
+        existing = store.get_decision_map(session_id) or _decision_map_cache.get(session_id)
+        if existing:
+            return existing
+        report, is_demo = _report_for(session_id)
+        use_llm = (not is_demo) and engine.llm.available
+        result = build_decision_map(report, engine.llm, use_llm)
+        _decision_map_cache[session_id] = result
+        try:
+            store.save_decision_map(session_id, result)
+        except Exception:
+            pass  # persistence is best-effort
+        return result
 
 
 # --------------------------------------------------------------------------- #

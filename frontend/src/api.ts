@@ -12,6 +12,8 @@ import type {
   SessionReview,
   SimulationState,
   Walkthrough,
+  DecisionMap,
+  DeliveryMetrics,
 } from "./types";
 
 // All requests go through Vite's /api proxy to the FastAPI backend.
@@ -64,6 +66,7 @@ export const api = {
       timed_out: boolean;
       elapsed_active_seconds: number;
       overtime_seconds?: number;
+      delivery?: DeliveryMetrics;
     }
   ) =>
     request<{ state: SimulationState }>(`/simulations/${sessionId}/respond`, {
@@ -106,6 +109,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ round_number, question }),
     }),
+
+  // --- "What if" decision map (generated once, saved with the session) ---
+  decisionMap: (sessionId: string) =>
+    request<DecisionMap>(`/decision-map/${sessionId}`, { method: "POST" }),
 
   // --- Persistent history (backend SQLite) ---
   historyList: () =>

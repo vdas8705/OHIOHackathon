@@ -50,6 +50,48 @@ export interface CategoryScore {
   overtime_deduction?: number;
 }
 
+export type { DeliveryMetrics } from "./speech/delivery";
+import type { DeliveryMetrics } from "./speech/delivery";
+
+export interface DeliverySummary {
+  answers_with_voice: number;
+  total_words: number;
+  average_wpm: number | null;
+  pace_label: string;
+  filler_count: number;
+  top_fillers: { phrase: string; count: number }[];
+  hedge_count: number;
+  top_hedges: { phrase: string; count: number }[];
+  long_pauses: number;
+  tips: string[];
+}
+
+export interface EnvironmentState {
+  technical_stability: number;
+  risk_level: number;
+  stakeholder_confidence: number;
+  progress: number;
+}
+
+export interface DecisionMapRound {
+  round_number: number;
+  question: string;
+  correctness: WalkthroughCorrectness;
+  performance_level: string;
+  your_choice: string;
+  what_happened: string;
+  environment_after: EnvironmentState | null;
+  what_if: { label: string; approach: string; outcome: string };
+}
+
+export interface DecisionMap {
+  version: number;
+  generated_by: "llm" | "template";
+  rounds: DecisionMapRound[];
+  your_ending: string;
+  best_ending: string;
+}
+
 export interface OvertimeTier {
   tier: number;
   starts_after_seconds: number;
@@ -81,6 +123,9 @@ export interface RoundReport {
   overtime_tier?: number;
   overtime_penalty_pct?: number;
   overtime_deduction?: number;
+  delivery?: DeliveryMetrics | null;
+  environment_after?: EnvironmentState | null;
+  alternative_outcomes?: Record<string, string>;
 }
 
 export interface QuestionPerformance {
@@ -143,6 +188,7 @@ export interface PerformanceReport {
   overall_score_before_overtime?: number | null;
   overtime_points_lost?: number;
   overtime_tiers?: OvertimeTier[];
+  delivery_summary?: DeliverySummary | null;
 }
 
 export interface CreateSimulationInput {

@@ -89,6 +89,10 @@ class HistoryStore:
                 # Older databases predate the saved results walkthrough.
                 self._conn.execute("ALTER TABLE sessions ADD COLUMN walkthrough_json TEXT")
                 self._conn.commit()
+            if "decision_map_json" not in cols:
+                # Older databases predate the saved "what if" decision map.
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN decision_map_json TEXT")
+                self._conn.commit()
 
     def save_session(
         self,
@@ -197,6 +201,23 @@ class HistoryStore:
         if row is None or not row["walkthrough_json"]:
             return None
         return json.loads(row["walkthrough_json"])
+
+    def get_decision_map(self, session_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT decision_map_json FROM sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        if row is None or not row["decision_map_json"]:
+            return None
+        return json.loads(row["decision_map_json"])
+
+    def save_decision_map(self, session_id: str, decision_map: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET decision_map_json = ? WHERE session_id = ?",
+                (json.dumps(decision_map), session_id),
+            )
+            self._conn.commit()
 
     def save_walkthrough(self, session_id: str, walkthrough: dict) -> None:
         with self._lock:

@@ -70,9 +70,15 @@ export function useSpeechRecognition() {
   const [error, setError] = useState<string | null>(null);
   const finalRef = useRef("");
   const onFinalRef = useRef<(full: string) => void>(() => {});
+  const onActivityRef = useRef<((chunk: string, isFinal: boolean) => void) | undefined>(undefined);
 
   const start = useCallback(
-    (onFinal: (full: string) => void, seed = "") => {
+    (
+      onFinal: (full: string) => void,
+      seed = "",
+      // Optional: every raw result, interim or final (used for delivery coaching).
+      onActivity?: (chunk: string, isFinal: boolean) => void
+    ) => {
       if (!supported) {
         setError("Speech recognition is not supported in this browser.");
         return;
@@ -80,9 +86,11 @@ export function useSpeechRecognition() {
       setError(null);
       finalRef.current = seed ? seed.trimEnd() + " " : "";
       onFinalRef.current = onFinal;
+      onActivityRef.current = onActivity;
       setListening(true);
       recognitionService.start({
         onResult: (transcript, isFinal) => {
+          onActivityRef.current?.(transcript, isFinal);
           if (isFinal) {
             finalRef.current = (finalRef.current + transcript + " ").replace(
               /\s+/g,

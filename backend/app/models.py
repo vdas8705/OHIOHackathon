@@ -125,6 +125,26 @@ class InterviewerTurn(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Voice delivery metrics (measured in the browser from speech recognition).
+# Coaching only: never part of the score.
+# --------------------------------------------------------------------------- #
+class DeliveryMetrics(BaseModel):
+    voice_words: int = Field(default=0, ge=0, le=20000)
+    speaking_seconds: float = Field(default=0, ge=0, le=3600)
+    wpm: Optional[int] = Field(default=None, ge=0, le=600)
+    filler_count: int = Field(default=0, ge=0, le=5000)
+    fillers: dict[str, int] = Field(default_factory=dict)
+    hedge_count: int = Field(default=0, ge=0, le=5000)
+    hedges: dict[str, int] = Field(default_factory=dict)
+    long_pauses: int = Field(default=0, ge=0, le=1000)
+
+    @field_validator("fillers", "hedges")
+    @classmethod
+    def _small_dict(cls, v: dict[str, int]) -> dict[str, int]:
+        return {str(k)[:30]: max(0, int(c)) for k, c in list(v.items())[:20]}
+
+
+# --------------------------------------------------------------------------- #
 # Conversation + decision history
 # --------------------------------------------------------------------------- #
 class ConversationEntry(BaseModel):
@@ -147,6 +167,7 @@ class DecisionRecord(BaseModel):
     clarifications: list[dict] = Field(default_factory=list)
     # Seconds the candidate kept working after this section's timer hit zero.
     overtime_seconds: int = 0
+    delivery: Optional[DeliveryMetrics] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -277,6 +298,12 @@ class RoundReport(BaseModel):
     overtime_tier: int = 0  # 0 = on time
     overtime_penalty_pct: int = 0
     overtime_deduction: int = 0
+    # Voice delivery for this answer (None if it was typed).
+    delivery: Optional[DeliveryMetrics] = None
+    # For the "what if" decision map: the scenario state after this round, and
+    # what a strong / weak / incomplete answer leads to here.
+    environment_after: Optional[dict] = None
+    alternative_outcomes: dict[str, str] = Field(default_factory=dict)
 
 
 class PerformanceReport(BaseModel):
@@ -306,6 +333,8 @@ class PerformanceReport(BaseModel):
     overall_score_before_overtime: Optional[int] = None
     overtime_points_lost: int = 0
     overtime_tiers: list[dict] = Field(default_factory=list)
+    # --- voice delivery coaching (None when every answer was typed) ---
+    delivery_summary: Optional[dict] = None
 
 
 class QuestionReview(BaseModel):
@@ -400,6 +429,7 @@ class RespondRequest(BaseModel):
     # Time past this section's limit before the first submit (excludes
     # clarifications and the answer-confirmation step).
     overtime_seconds: int = Field(default=0, ge=0, le=3600)
+    delivery: Optional[DeliveryMetrics] = None
 
 
 class InterpretRequest(BaseModel):

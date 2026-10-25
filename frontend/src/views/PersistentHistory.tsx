@@ -20,6 +20,7 @@ import ReportBody from "../components/ReportBody";
 import { api } from "../api";
 import type { HistoryDetail, HistorySummary, SessionOrigin } from "../types";
 import { SavedWalkthrough } from "./Walkthrough";
+import DecisionMap from "../components/DecisionMap";
 
 const ORIGIN_BADGE: Record<
   SessionOrigin,
@@ -370,6 +371,9 @@ export function PersistentSessionViewer({
 
       {/* Full weighted report with radar, reused from the live results view */}
       <ReportBody report={detail.report} />
+
+      {/* "What if" decision map (saved with the session) */}
+      <DecisionMap sessionId={sessionId} />
 
       {/* Saved spoken walkthrough, if the user went through it */}
       {detail.walkthrough?.viewed && (

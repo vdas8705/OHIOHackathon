@@ -12,6 +12,8 @@ export type VoiceEngineStatus = "idle" | "loading" | "ready" | "fallback";
 export interface VoiceEngineState {
   status: VoiceEngineStatus;
   progress: number; // 0–100 while loading
+  /** Why the natural voice isn't being used (shown in voice settings). */
+  reason?: string;
 }
 
 export interface SpeakOptions {
@@ -107,35 +109,49 @@ class VoiceEngine {
   preload(): Promise<boolean> {
     if (this.ready) return this.ready;
     if (!kokoroSupported()) {
-      setState({ status: "fallback" });
+      setState({ status: "fallback", reason: "This browser can't run the natural voice (needs Web Workers, WebAssembly, and Web Audio)." });
       return (this.ready = Promise.resolve(false));
     }
     setState({ status: "loading", progress: 0 });
     this.ready = new Promise<boolean>((resolve) => {
-      const fail = () => {
+      const fail = (reason = "The natural voice stopped unexpectedly.") => {
+        console.warn("[voice] Natural voice unavailable, using the browser voice:", reason);
         this.worker?.terminate();
         this.worker = null;
         this.failPendingJobs();
-        setState({ status: "fallback" });
+        setState({ status: "fallback", reason });
         resolve(false);
       };
       let worker: Worker;
       try {
         worker = new Worker(new URL("./kokoro.worker.ts", import.meta.url), { type: "module" });
-      } catch {
-        fail();
+      } catch (e) {
+        fail(`Couldn't start the voice worker: ${e instanceof Error ? e.message : String(e)}`);
         return;
       }
       this.worker = worker;
+      // Watchdog: loading always sends progress while downloading, then
+      // "ready" a few seconds later. Long silence means something hung, so
+      // use the browser voice rather than leaving the interview silent.
+      const STALL_MS = 45_000;
+      let stallTimer = setTimeout(() => fail("The natural voice stopped responding while loading."), STALL_MS);
+      const stillAlive = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => fail("The natural voice stopped responding while loading."), STALL_MS);
+      };
       worker.onmessage = (e: MessageEvent) => {
         const msg = e.data;
+        if (msg.type === "progress") stillAlive();
+        if (msg.type === "ready" || msg.type === "load-error") clearTimeout(stallTimer);
         if (msg.type === "progress") {
           setState({ progress: msg.progress });
         } else if (msg.type === "ready") {
           setState({ status: "ready", progress: 100 });
           resolve(true);
         } else if (msg.type === "load-error") {
-          fail();
+          fail(/\b405\b|captcha/i.test(msg.message ?? "")
+            ? "The voice download was blocked by Hugging Face's bot check. Try again later or on another network."
+            : `The voice model couldn't load: ${msg.message ?? "unknown error"}`);
         } else if (msg.type === "audio" || msg.type === "generate-error") {
           const job = this.jobs.get(msg.id);
           if (!job) return;
@@ -145,7 +161,7 @@ class VoiceEngine {
       };
       worker.onerror = (e) => {
         e.preventDefault();
-        fail();
+        fail(`The voice worker crashed${e.message ? `: ${e.message}` : "."}`);
       };
       worker.postMessage({ type: "load" });
     });
