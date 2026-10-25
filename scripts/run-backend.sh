@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 # Start the BranchPoint FastAPI backend.
 set -euo pipefail
-cd "$(dirname "$0")/../backend"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$ROOT/backend"
+
+# Free port 8000 if a stale backend from a previous run is still holding it.
+STALE="$(lsof -nP -tiTCP:8000 2>/dev/null || true)"
+if [ -n "$STALE" ]; then
+  echo "[backend] Port 8000 is in use (PIDs: $STALE). Stopping the stale process..."
+  kill $STALE 2>/dev/null || true
+  sleep 1
+  STALE="$(lsof -nP -tiTCP:8000 2>/dev/null || true)"
+  [ -n "$STALE" ] && kill -9 $STALE 2>/dev/null || true
+fi
 
 if [ ! -d .venv ]; then
   echo "Creating Python virtual environment..."

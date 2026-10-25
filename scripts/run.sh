@@ -12,6 +12,16 @@ if ! command -v node >/dev/null 2>&1 && [ -d "$LOCAL_NODE" ]; then
   export PATH="$LOCAL_NODE:$PATH"
 fi
 
+# --- free port 8000 if a stale backend is still holding it ---
+STALE="$(lsof -nP -tiTCP:8000 2>/dev/null || true)"
+if [ -n "$STALE" ]; then
+  echo "[run] Port 8000 is in use (PIDs: $STALE). Stopping the stale process..."
+  kill $STALE 2>/dev/null || true
+  sleep 1
+  STALE="$(lsof -nP -tiTCP:8000 2>/dev/null || true)"
+  [ -n "$STALE" ] && kill -9 $STALE 2>/dev/null || true
+fi
+
 # --- one-time setup: backend venv ---
 if [ ! -d "$ROOT/backend/.venv" ]; then
   echo "[setup] Creating Python virtual environment..."
