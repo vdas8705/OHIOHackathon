@@ -27,9 +27,16 @@ from .models import (
     RespondResponse,
     SessionReview,
     SimulationStateResponse,
+    Walkthrough,
+    WalkthroughAskRequest,
+    WalkthroughAskResponse,
+    WalkthroughFollowup,
 )
 from .storage import HistoryStore
 from .trends import compute_trends
+from .walkthrough import answer_followup, build_walkthrough
+
+import threading
 
 settings = get_settings()
 store = HistoryStore()
@@ -220,6 +227,88 @@ def review(session_id: str) -> SessionReview:
     if session.final_report is None:
         raise HTTPException(status_code=409, detail="Report not ready")
     return engine.generate_review(session)
+
+
+# --------------------------------------------------------------------------- #
+# Spoken results walkthrough. Works for live sessions and saved ones, because
+# it is derived only from the persisted report.
+# --------------------------------------------------------------------------- #
+_walkthrough_locks: dict[str, threading.Lock] = {}
+_walkthrough_locks_guard = threading.Lock()
+# Fallback cache for sessions that aren't in the history store.
+_walkthrough_cache: dict[str, dict] = {}
+
+
+def _walkthrough_lock(session_id: str) -> threading.Lock:
+    with _walkthrough_locks_guard:
+        return _walkthrough_locks.setdefault(session_id, threading.Lock())
+
+
+def _report_for(session_id: str) -> tuple[dict, bool]:
+    """Return (report dict, is_demo) from the live session or the saved history."""
+    session = engine.get(session_id)
+    if session is not None and session.final_report is not None:
+        return session.final_report.model_dump(), session.is_demo
+    saved = store.get_report(session_id)
+    if saved is None:
+        raise HTTPException(status_code=404, detail="Results not found for this session")
+    return saved["report"], bool(saved["report"].get("is_demo"))
+
+
+def _load_walkthrough(session_id: str) -> dict | None:
+    return store.get_walkthrough(session_id) or _walkthrough_cache.get(session_id)
+
+
+def _save_walkthrough(session_id: str, data: dict) -> None:
+    _walkthrough_cache[session_id] = data
+    try:
+        store.save_walkthrough(session_id, data)
+    except Exception:
+        pass  # persistence is best-effort; the cache still serves this run
+
+
+@app.post("/api/walkthrough/{session_id}", response_model=Walkthrough)
+def walkthrough(session_id: str) -> Walkthrough:
+    """Get (generating once if needed) the spoken walkthrough for a session's results."""
+    with _walkthrough_lock(session_id):
+        existing = _load_walkthrough(session_id)
+        if existing:
+            return Walkthrough(**existing)
+        report, is_demo = _report_for(session_id)
+        use_llm = (not is_demo) and engine.llm.available
+        result = build_walkthrough(report, engine.llm, use_llm)
+        _save_walkthrough(session_id, result.model_dump())
+        return result
+
+
+@app.post("/api/walkthrough/{session_id}/viewed", response_model=Walkthrough)
+def walkthrough_viewed(session_id: str) -> Walkthrough:
+    """Mark that the user actually went through the walkthrough (shown in Past Sessions)."""
+    with _walkthrough_lock(session_id):
+        existing = _load_walkthrough(session_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Walkthrough not generated yet")
+        existing["viewed"] = True
+        _save_walkthrough(session_id, existing)
+        return Walkthrough(**existing)
+
+
+@app.post("/api/walkthrough/{session_id}/ask", response_model=WalkthroughAskResponse)
+def walkthrough_ask(session_id: str, req: WalkthroughAskRequest) -> WalkthroughAskResponse:
+    """Answer a follow-up about one question, and save it with the walkthrough."""
+    report, is_demo = _report_for(session_id)
+    use_llm = (not is_demo) and engine.llm.available
+    answer = answer_followup(report, req.round_number, req.question.strip(), engine.llm, use_llm)
+    with _walkthrough_lock(session_id):
+        existing = _load_walkthrough(session_id)
+        if existing:
+            existing.setdefault("followups", []).append(
+                WalkthroughFollowup(
+                    round_number=req.round_number, question=req.question.strip(), answer=answer
+                ).model_dump()
+            )
+            _save_walkthrough(session_id, existing)
+    return WalkthroughAskResponse(answer=answer)
 
 
 # --------------------------------------------------------------------------- #

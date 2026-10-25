@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Volume2, VolumeX, Radio, Loader2, SlidersHorizontal } from "lucide-react";
-import { MAX_VOICE_RATE, MIN_VOICE_RATE } from "../speech/voiceSettings";
+import { Mic, MicOff, Volume2, VolumeX, Radio, Loader2, SlidersHorizontal, Play, Square } from "lucide-react";
+import {
+  KOKORO_VOICES,
+  MAX_VOICE_RATE,
+  MIN_VOICE_RATE,
+  type KokoroVoiceId,
+} from "../speech/voiceSettings";
+import { voiceEngine, type VoiceEngineState } from "../speech/voiceEngine";
 
 export type MicPhase =
   | "idle"
@@ -146,15 +152,22 @@ export function ToggleIconButton({
 export function VoiceSettingsButton({
   enabled,
   rate,
+  voice,
+  engine,
   onToggleEnabled,
   onRateChange,
+  onVoiceChange,
 }: {
   enabled: boolean;
   rate: number;
+  voice: KokoroVoiceId;
+  engine: VoiceEngineState;
   onToggleEnabled: () => void;
   onRateChange: (rate: number) => void;
+  onVoiceChange: (voice: KokoroVoiceId) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [previewing, setPreviewing] = useState<KokoroVoiceId | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click or Escape.
@@ -172,6 +185,26 @@ export function VoiceSettingsButton({
     };
   }, [open]);
 
+  function preview(id: KokoroVoiceId, name: string) {
+    if (previewing === id) {
+      voiceEngine.cancel();
+      setPreviewing(null);
+      return;
+    }
+    setPreviewing(id);
+    voiceEngine.preview(id, rate, name, () => setPreviewing((p) => (p === id ? null : p)));
+  }
+
+  const canPreview = engine.status === "ready";
+  const previewHint =
+    engine.status === "loading"
+      ? `Previews unlock once the voice is ready (${engine.progress}%).`
+      : engine.status === "fallback"
+      ? "This device can't run the natural voices, so a simpler voice is used."
+      : engine.status === "idle"
+      ? "Turn the voice on to download the natural voices."
+      : null;
+
   return (
     <div ref={rootRef} className="relative">
       <button
@@ -187,20 +220,22 @@ export function VoiceSettingsButton({
         <div
           role="dialog"
           aria-label="Voice settings"
-          className="absolute bottom-12 left-0 z-20 w-60 rounded-xl border p-4 shadow-xl shadow-black/30"
-          style={{ background: "var(--bg-panel)", borderColor: "var(--bg-panel-border)", backdropFilter: "blur(12px)" }}
+          className="fixed inset-x-4 bottom-24 z-30 rounded-xl border p-4 shadow-xl shadow-black/30 sm:absolute sm:inset-x-auto sm:bottom-12 sm:left-0 sm:w-80"
+          style={{ background: "var(--bg-panel)", borderColor: "var(--bg-panel-border)", backdropFilter: "blur(12px)", color: "var(--text-primary)" }}
         >
-          <label className="flex items-center justify-between text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+          <label className="flex items-center justify-between text-sm font-medium">
             Interviewer voice
             <input
               type="checkbox"
+              role="switch"
               checked={enabled}
               onChange={onToggleEnabled}
               className="h-4 w-4"
               style={{ accentColor: "var(--accent)" }}
             />
           </label>
-          <label className="mt-4 block text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+
+          <label className="mt-4 block text-sm font-medium">
             <span className="flex items-center justify-between">
               Speed
               <span className="text-xs tabular-nums" style={{ color: "var(--text-secondary)" }}>
@@ -213,16 +248,112 @@ export function VoiceSettingsButton({
               max={MAX_VOICE_RATE}
               step={0.05}
               value={rate}
-              disabled={!enabled}
               onChange={(e) => onRateChange(Number(e.target.value))}
-              className="mt-2 w-full disabled:opacity-40"
+              className="mt-2 w-full"
               style={{ accentColor: "var(--accent)" }}
             />
           </label>
+
+          <fieldset className="mt-4">
+            <legend className="text-sm font-medium">Voice</legend>
+            <ul className="mt-2 space-y-1.5">
+              {KOKORO_VOICES.map((v) => {
+                const selected = v.id === voice;
+                return (
+                  <li
+                    key={v.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5"
+                    style={{
+                      borderColor: selected ? "var(--accent)" : "var(--btn-ghost-border)",
+                      background: selected ? "var(--badge-bg)" : "transparent",
+                    }}
+                  >
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="kokoro-voice"
+                        checked={selected}
+                        onChange={() => onVoiceChange(v.id)}
+                        style={{ accentColor: "var(--accent)" }}
+                      />
+                      <span className="truncate">
+                        <span className="font-medium">{v.name}</span>{" "}
+                        <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                          {v.description}
+                        </span>
+                      </span>
+                    </label>
+                    <button
+                      onClick={() => preview(v.id, v.name)}
+                      disabled={!canPreview}
+                      aria-label={`${previewing === v.id ? "Stop preview of" : "Preview"} ${v.name}`}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                      style={{ background: "var(--btn-ghost-bg)", color: "var(--btn-ghost-text)", borderColor: "var(--btn-ghost-border)" }}
+                    >
+                      {previewing === v.id ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                      {previewing === v.id ? "Stop" : "Preview"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {previewHint && (
+              <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {previewHint}
+              </p>
+            )}
+          </fieldset>
         </div>
       )}
     </div>
   );
+}
+
+/** Download progress for the neural voice, or a note when using the fallback. */
+export function VoiceStatusNote({
+  engine,
+  enabled,
+  hint,
+}: {
+  engine: VoiceEngineState;
+  enabled: boolean;
+  hint?: string;
+}) {
+  if (!enabled) return null;
+  if (engine.status === "loading") {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-3 rounded-full border px-3 py-1 text-xs font-medium"
+        style={{ background: "var(--badge-bg)", borderColor: "var(--badge-border)", color: "var(--text-primary)" }}
+      >
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" style={{ color: "var(--accent)" }} />
+        <span>
+          Getting the voice ready… {engine.progress}%
+          {hint && <span style={{ color: "var(--text-secondary)" }}> · {hint}</span>}
+        </span>
+        <span
+          className="h-1.5 w-16 overflow-hidden rounded-full"
+          style={{ background: "var(--btn-ghost-border)" }}
+          aria-hidden="true"
+        >
+          <span
+            className="block h-full rounded-full transition-[width] duration-300"
+            style={{ width: `${engine.progress}%`, background: "var(--accent)" }}
+          />
+        </span>
+      </div>
+    );
+  }
+  if (engine.status === "fallback") {
+    return (
+      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+        Using a simpler voice on this device.
+      </span>
+    );
+  }
+  return null;
 }
 
 export { Volume2, VolumeX, Mic, MicOff };

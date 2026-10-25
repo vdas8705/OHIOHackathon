@@ -11,6 +11,7 @@ import type {
   PerformanceReport,
   SessionReview,
   SimulationState,
+  Walkthrough,
 } from "./types";
 
 // All requests go through Vite's /api proxy to the FastAPI backend.
@@ -90,6 +91,19 @@ export const api = {
     request<InterpretResponse>(`/simulations/${sessionId}/interpret`, {
       method: "POST",
       body: JSON.stringify({ round_number, response }),
+    }),
+
+  // --- Spoken results walkthrough (generated once, saved with the session) ---
+  walkthrough: (sessionId: string) =>
+    request<Walkthrough>(`/walkthrough/${sessionId}`, { method: "POST" }),
+
+  walkthroughViewed: (sessionId: string) =>
+    request<Walkthrough>(`/walkthrough/${sessionId}/viewed`, { method: "POST" }),
+
+  walkthroughAsk: (sessionId: string, round_number: number, question: string) =>
+    request<{ answer: string }>(`/walkthrough/${sessionId}/ask`, {
+      method: "POST",
+      body: JSON.stringify({ round_number, question }),
     }),
 
   // --- Persistent history (backend SQLite) ---

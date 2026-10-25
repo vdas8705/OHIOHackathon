@@ -312,6 +312,48 @@ class SessionReview(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Spoken results walkthrough (derived from the saved PerformanceReport)
+# --------------------------------------------------------------------------- #
+WalkthroughCorrectness = Literal["correct", "partly_correct", "incorrect"]
+
+
+class WalkthroughQuestion(BaseModel):
+    round_number: int
+    correctness: WalkthroughCorrectness
+    performance_level: str  # the report's label, shown alongside correctness
+    question: str
+    spoken: str  # written for listening; also shown verbatim as text
+
+
+class WalkthroughFollowup(BaseModel):
+    round_number: int
+    question: str
+    answer: str
+
+
+class Walkthrough(BaseModel):
+    version: int = 1
+    generated_by: Literal["llm", "template"] = "template"
+    viewed: bool = False
+    overall_score: int
+    max_score: int = 100
+    intro: str
+    questions: list[WalkthroughQuestion]
+    wrap_up: str
+    focus_points: list[str] = Field(default_factory=list)
+    followups: list[WalkthroughFollowup] = Field(default_factory=list)
+
+
+class WalkthroughAskRequest(BaseModel):
+    round_number: int = Field(ge=1, le=TOTAL_ROUNDS)
+    question: str = Field(min_length=1, max_length=1000)
+
+
+class WalkthroughAskResponse(BaseModel):
+    answer: str
+
+
+# --------------------------------------------------------------------------- #
 # API request / response contracts
 # --------------------------------------------------------------------------- #
 class FetchJobRequest(BaseModel):

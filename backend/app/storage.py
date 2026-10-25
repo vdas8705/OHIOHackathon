@@ -48,10 +48,15 @@ class HistoryStore:
                     schema_version    INTEGER NOT NULL DEFAULT 2,
                     created_at        TEXT NOT NULL,
                     report_json       TEXT NOT NULL,
-                    conversation_json TEXT NOT NULL
+                    conversation_json TEXT NOT NULL,
+                    walkthrough_json  TEXT
                 )
                 """
             )
+            # Older databases predate the walkthrough column.
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sessions)")}
+            if "walkthrough_json" not in cols:
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN walkthrough_json TEXT")
             self._conn.commit()
 
     def save_session(
@@ -129,7 +134,37 @@ class HistoryStore:
         data = self._summary_row(row)
         data["report"] = json.loads(row["report_json"])
         data["conversation"] = json.loads(row["conversation_json"])
+        data["walkthrough"] = (
+            json.loads(row["walkthrough_json"]) if row["walkthrough_json"] else None
+        )
         return data
+
+    def get_report(self, session_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT report_json, job_title FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"report": json.loads(row["report_json"]), "job_title": row["job_title"]}
+
+    def get_walkthrough(self, session_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT walkthrough_json FROM sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        if row is None or not row["walkthrough_json"]:
+            return None
+        return json.loads(row["walkthrough_json"])
+
+    def save_walkthrough(self, session_id: str, walkthrough: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET walkthrough_json = ? WHERE session_id = ?",
+                (json.dumps(walkthrough), session_id),
+            )
+            self._conn.commit()
 
     def get_all_reports(self) -> list[dict]:
         """Return (summary + full report) for every completed session.

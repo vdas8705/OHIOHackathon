@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   GitBranch,
   Send,
@@ -19,11 +19,17 @@ import {
   MicButton,
   ToggleIconButton,
   VoiceSettingsButton,
+  VoiceStatusNote,
 } from "../components/VoiceControls";
-import { PersonAvatarSVG } from "../components/PersonAvatars";
+import type { Expression } from "../components/ComicCharacters";
+import { BubbleTail, SpeakerTurn, ThinkingBubble, type Speaker } from "../components/ComicChat";
 import { api } from "../api";
 import { useInterviewerVoice, useSpeechRecognition } from "../speech/useSpeech";
-import { loadVoiceSettings, saveVoiceSettings } from "../speech/voiceSettings";
+import {
+  loadVoiceSettings,
+  saveVoiceSettings,
+  type KokoroVoiceId,
+} from "../speech/voiceSettings";
 import type { SimulationState } from "../types";
 
 interface Props {
@@ -61,10 +67,12 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   const [voiceSettings] = useState(loadVoiceSettings);
   const [interviewerMuted, setInterviewerMuted] = useState(!voiceSettings.enabled);
   const [voiceRate, setVoiceRate] = useState(voiceSettings.rate);
+  const [voiceId, setVoiceId] = useState(voiceSettings.voice);
   const [micMuted, setMicMuted] = useState(false);
-  const { speak, stop: stopSpeaking, speaking } = useInterviewerVoice(
+  const { speak, stop: stopSpeaking, speaking, engine: voiceEngineState } = useInterviewerVoice(
     interviewerMuted,
-    voiceRate
+    voiceRate,
+    voiceId
   );
   const rec = useSpeechRecognition();
 
@@ -143,7 +151,7 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
       top: transcriptRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [bubbles, rec.interim]);
+  }, [bubbles, rec.interim, processing, interpreting, interpretation]);
 
   // ---- response countdown ----
   useEffect(() => {
@@ -200,13 +208,18 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   function toggleInterviewerMute() {
     const next = !interviewerMuted;
     setInterviewerMuted(next);
-    saveVoiceSettings({ enabled: !next, rate: voiceRate });
+    saveVoiceSettings({ enabled: !next, rate: voiceRate, voice: voiceId });
     if (next) stopSpeaking();
   }
 
   function changeVoiceRate(rate: number) {
     setVoiceRate(rate);
-    saveVoiceSettings({ enabled: !interviewerMuted, rate });
+    saveVoiceSettings({ enabled: !interviewerMuted, rate, voice: voiceId });
+  }
+
+  function changeVoice(voice: KokoroVoiceId) {
+    setVoiceId(voice);
+    saveVoiceSettings({ enabled: !interviewerMuted, rate: voiceRate, voice });
   }
 
   async function handleSubmit(timedOut = false) {
@@ -410,6 +423,17 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
     state.max_clarifications_per_round - state.clarifications_used_this_round;
   const micDenied = Boolean(rec.error && /denied|not-allowed/i.test(rec.error));
 
+  // Comic transcript: group consecutive bubbles by speaker.
+  const turns = groupTurns(bubbles);
+  const lastAssistantTurn = turns.map((t) => t.speaker).lastIndexOf("assistant");
+  const assistantBusy = processing || interpreting;
+  const assistantExpression: Expression = assistantBusy ? "thinking" : speaking ? "smiling" : "neutral";
+  const thinkingLabel = interpreting ? "Summarizing your answer…" : undefined;
+  const confirmPending = Boolean(interpretation && !interpreting && !clarifyingMore);
+  const confirmBubbleId = confirmPending
+    ? [...bubbles].reverse().find((b) => b.role === "interpretation")?.id
+    : undefined;
+
   return (
     <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-5 py-6">
       {/* Header */}
@@ -451,63 +475,66 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
       </div>
 
       {/* Transcript */}
-      <Panel className="mt-5 flex-1 overflow-hidden">
+      <div className="comic-panel mt-5 flex-1 overflow-hidden">
         <div
           ref={transcriptRef}
-          className="scroll-slim h-[42vh] space-y-2 overflow-y-auto p-5 sm:h-[46vh]"
+          className="comic-transcript comic-font scroll-slim h-[50vh] space-y-5 overflow-y-auto p-3 sm:h-[56vh] sm:p-5"
         >
-          {bubbles.map((b, i) => {
-            const prev = bubbles[i - 1];
-            const sameGroup = (r: Bubble["role"]) =>
-              r === "interviewer" || r === "clarify_a";
-            const showAvatar =
-              !prev ||
-              (sameGroup(b.role) ? !sameGroup(prev.role) : sameGroup(prev.role) || prev.role !== b.role);
-            return <ChatBubble key={b.id} bubble={b} showAvatar={showAvatar} userAvatarId={userAvatarId} />;
+          {turns.map((turn, ti) => {
+            const isLastTurn = ti === turns.length - 1;
+            const isAssistant = turn.speaker === "assistant";
+            return (
+              <SpeakerTurn
+                key={turn.bubbles[0].id}
+                speaker={turn.speaker}
+                userAvatarId={userAvatarId}
+                expression={isAssistant && ti === lastAssistantTurn ? assistantExpression : "neutral"}
+                talking={isAssistant && ti === lastAssistantTurn && speaking && !assistantBusy}
+              >
+                {turn.bubbles.map((b) => (
+                  <Fragment key={b.id}>
+                    <ChatBubble bubble={b} />
+                    {b.id === confirmBubbleId && (
+                      <div className="comic-tags">
+                        <button className="comic-tag comic-tag--primary" onClick={confirmAndSubmit} disabled={processing}>
+                          <Check className="h-4 w-4" /> That's right, submit it
+                        </button>
+                        {clarificationCount < 2 ? (
+                          <button className="comic-tag comic-tag--secondary" onClick={requestClarification} disabled={processing}>
+                            <MessageSquarePlus className="h-4 w-4" /> Let me explain more
+                          </button>
+                        ) : (
+                          <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                            Max clarifications reached — please submit your answer.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </Fragment>
+                ))}
+                {isLastTurn && isAssistant && assistantBusy && <ThinkingBubble label={thinkingLabel} />}
+              </SpeakerTurn>
+            );
           })}
+          {assistantBusy && turns[turns.length - 1]?.speaker !== "assistant" && (
+            <SpeakerTurn speaker="assistant" userAvatarId={userAvatarId} expression="thinking">
+              <ThinkingBubble label={thinkingLabel} />
+            </SpeakerTurn>
+          )}
           {rec.interim && (
-            <div className="flex items-end justify-end gap-2.5">
-              <div className="max-w-[75%] rounded-2xl rounded-br-sm border border-dashed border-teal-accent/30 bg-teal-accent/5 px-4 py-2.5 text-sm italic text-slate-400">
+            <SpeakerTurn
+              speaker="user"
+              userAvatarId={userAvatarId}
+              showCharacter={turns[turns.length - 1]?.speaker !== "user"}
+            >
+              <div className="comic-bubble comic-bubble--draft">
+                <BubbleTail side="right" fill="var(--bg-panel)" />
                 {rec.interim}
               </div>
-              {/* spacer to keep alignment consistent with avatar width */}
-              <div className="w-9 shrink-0" />
-            </div>
+            </SpeakerTurn>
           )}
         </div>
-      </Panel>
-
-      {/* Interpretation confirmation */}
-      {interpreting && (
-        <div className="mt-4 flex items-center gap-3 rounded-xl border px-4 py-3"
-          style={{ borderColor: "var(--bg-interpret-border)", background: "var(--bg-interpret)" }}>
-          <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--accent)" }} />
-          <span className="text-sm" style={{ color: "var(--text-interpret)" }}>Summarizing your answer…</span>
-        </div>
-      )}
-
-      {interpretation && !interpreting && !clarifyingMore && (
-        <div className="mt-4 rounded-xl border p-4"
-          style={{ borderColor: "var(--bg-interpret-border)", background: "var(--bg-interpret)" }}>
-          <p className="text-sm leading-relaxed" style={{ color: "var(--text-interpret)" }}>
-            {interpretation}
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button onClick={confirmAndSubmit} disabled={processing}>
-              <Check className="h-4 w-4" /> That's right, submit it
-            </Button>
-            {clarificationCount < 2 ? (
-              <Button variant="ghost" onClick={requestClarification} disabled={processing}>
-                <MessageSquarePlus className="h-4 w-4" /> Let me explain more
-              </Button>
-            ) : (
-              <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                Max clarifications reached — please submit your answer.
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
 
       {clarifyingMore && !interpreting && (
         <div className="mt-4 rounded-xl border p-4"
@@ -539,13 +566,20 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
 
       {/* Status + timer */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <StatusPills
-          speaking={speaking}
-          listening={rec.listening}
-          processing={processing}
-          micSupported={rec.supported}
-          micDenied={micDenied}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPills
+            speaking={speaking}
+            listening={rec.listening}
+            processing={processing}
+            micSupported={rec.supported}
+            micDenied={micDenied}
+          />
+          <VoiceStatusNote
+            engine={voiceEngineState}
+            enabled={!interviewerMuted}
+            hint="mute to skip"
+          />
+        </div>
         <div className="flex items-center gap-3">
           <div className={`text-right ${timerTone}`}>
             <div className="text-xs font-medium text-slate-400">Response time</div>
@@ -655,8 +689,11 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
                 <VoiceSettingsButton
                   enabled={!interviewerMuted}
                   rate={voiceRate}
+                  voice={voiceId}
+                  engine={voiceEngineState}
                   onToggleEnabled={toggleInterviewerMute}
                   onRateChange={changeVoiceRate}
+                  onVoiceChange={changeVoice}
                 />
                 <ToggleIconButton
                   active={!micMuted}
@@ -714,153 +751,41 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   );
 }
 
-// ── Avatar components ────────────────────────────────────────────────────────
+// ── Comic transcript components ──────────────────────────────────────────────
 
-function InterviewerAvatar({ visible }: { visible: boolean }) {
-  return (
-    <div className="shrink-0 w-9 h-9" aria-label={visible ? "Assistant" : undefined}>
-      {visible && (
-        <div
-          className="flex h-9 w-9 items-center justify-center rounded-full"
-          style={{ background: "var(--avatar-ai-bg)", boxShadow: "0 0 0 2px var(--avatar-ai-ring)" }}
-        >
-          <PersonAvatarSVG index={0} size={32} isAssistant />
-        </div>
-      )}
-    </div>
-  );
+const speakerOf = (role: Bubble["role"]): Speaker =>
+  role === "candidate" || role === "clarify_q" ? "user" : "assistant";
+
+function groupTurns(bubbles: Bubble[]): { speaker: Speaker; bubbles: Bubble[] }[] {
+  const turns: { speaker: Speaker; bubbles: Bubble[] }[] = [];
+  for (const b of bubbles) {
+    const speaker = speakerOf(b.role);
+    const last = turns[turns.length - 1];
+    if (last && last.speaker === speaker) last.bubbles.push(b);
+    else turns.push({ speaker, bubbles: [b] });
+  }
+  return turns;
 }
 
-function UserAvatar({ visible, avatarId }: { visible: boolean; avatarId: number }) {
+const BUBBLE_STYLE: Record<Bubble["role"], { variant: string; fill: string; label?: string }> = {
+  interviewer: { variant: "comic-bubble--ai", fill: "var(--bg-bubble-ai)" },
+  clarify_a: { variant: "comic-bubble--ai", fill: "var(--bg-bubble-ai)", label: "Clarification" },
+  interpretation: { variant: "comic-bubble--interpret", fill: "var(--bg-interpret)", label: "Here's how I understood it" },
+  candidate: { variant: "comic-bubble--user", fill: "var(--bg-bubble-user)" },
+  clarify_q: { variant: "comic-bubble--plain", fill: "var(--bg-panel)", label: "Clarifying question" },
+};
+
+const LONG_MESSAGE_CHARS = 320;
+
+function ChatBubble({ bubble }: { bubble: Bubble }) {
+  const style = BUBBLE_STYLE[bubble.role];
+  const side = speakerOf(bubble.role) === "assistant" ? "left" : "right";
+  const wide = bubble.text.length > LONG_MESSAGE_CHARS ? "comic-bubble--wide" : "";
   return (
-    <div className="shrink-0 w-9 h-9" aria-label={visible ? "You" : undefined}>
-      {visible && (
-        <div
-          className="flex h-9 w-9 items-center justify-center rounded-full"
-          style={{ background: "var(--avatar-user-bg)", boxShadow: "0 0 0 2px var(--avatar-user-ring)" }}
-        >
-          <PersonAvatarSVG index={avatarId} size={32} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── ChatBubble ────────────────────────────────────────────────────────────────
-
-function ChatBubble({ bubble, showAvatar, userAvatarId }: { bubble: Bubble; showAvatar: boolean; userAvatarId: number }) {
-  if (bubble.role === "interviewer") {
-    return (
-      <div className="flex animate-fadeInUp items-start gap-2.5">
-        <InterviewerAvatar visible={showAvatar} />
-        <div className="max-w-[78%]">
-          {showAvatar && (
-            <div className="mb-1.5 text-xs font-semibold" style={{ color: "var(--avatar-ai-icon)" }}>
-              Interviewer
-            </div>
-          )}
-          <div
-            className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border"
-            style={{
-              background: "var(--bg-bubble-ai)",
-              color: "var(--text-bubble-ai)",
-              borderColor: "var(--bg-bubble-border-ai)",
-            }}
-          >
-            {bubble.text}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (bubble.role === "candidate") {
-    return (
-      <div className="flex animate-fadeInUp items-start justify-end gap-2.5">
-        <div className="max-w-[78%]">
-          {showAvatar && (
-            <div className="mb-1.5 text-right text-xs font-semibold" style={{ color: "var(--avatar-user-icon)" }}>
-              You
-            </div>
-          )}
-          <div
-            className="rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-sm"
-            style={{ background: "var(--bg-bubble-user)", color: "var(--text-bubble-user)" }}
-          >
-            {bubble.text}
-          </div>
-        </div>
-        <UserAvatar visible={showAvatar} avatarId={userAvatarId} />
-      </div>
-    );
-  }
-
-  if (bubble.role === "clarify_q") {
-    return (
-      <div className="flex items-start justify-end gap-2.5">
-        <div className="max-w-[75%]">
-          {showAvatar && (
-            <div className="mb-1.5 text-right text-xs font-semibold text-amber-400">
-              You · clarifying
-            </div>
-          )}
-          <div className="rounded-2xl rounded-br-sm border border-amber-400/25 bg-amber-400/10 px-4 py-2.5 text-sm text-amber-100 shadow-sm">
-            {bubble.text}
-          </div>
-        </div>
-        <UserAvatar visible={showAvatar} avatarId={userAvatarId} />
-      </div>
-    );
-  }
-
-  // interpretation — neutral restatement shown in its own styled bubble
-  if (bubble.role === "interpretation") {
-    return (
-      <div className="flex animate-fadeInUp items-start gap-2.5">
-        <InterviewerAvatar visible={showAvatar} />
-        <div className="max-w-[78%]">
-          {showAvatar && (
-            <div className="mb-1.5 text-xs font-semibold" style={{ color: "var(--avatar-ai-icon)" }}>
-              Here's how I understood it
-            </div>
-          )}
-          <div
-            className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed border"
-            style={{
-              background: "var(--bg-interpret)",
-              color: "var(--text-interpret)",
-              borderColor: "var(--bg-interpret-border)",
-            }}
-          >
-            {bubble.text}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // clarify_a
-  return (
-    <div className="flex items-start gap-2.5">
-      <InterviewerAvatar visible={showAvatar} />
-      <div className="max-w-[75%]">
-        {showAvatar && (
-          <div className="mb-1.5 text-xs font-semibold" style={{ color: "var(--avatar-ai-icon)" }}>
-            Interviewer · clarifying
-          </div>
-        )}
-        <div
-          className="rounded-2xl rounded-tl-sm border px-4 py-2.5 text-sm italic shadow-sm"
-          style={{
-            background: "var(--bg-bubble-ai)",
-            color: "var(--text-bubble-ai)",
-            borderColor: "var(--bg-bubble-border-ai)",
-            opacity: 0.85,
-          }}
-        >
-          {bubble.text}
-        </div>
-      </div>
+    <div className={`comic-bubble comic-pop ${style.variant} ${wide}`}>
+      <BubbleTail side={side} fill={style.fill} />
+      {style.label && <span className="comic-bubble__label">{style.label}</span>}
+      {bubble.text}
     </div>
   );
 }

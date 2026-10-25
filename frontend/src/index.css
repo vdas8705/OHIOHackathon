@@ -58,3 +58,208 @@ body {
   body { background: #fff; color: #111; }
   .print-light { background: #fff !important; color: #111 !important; border-color: #d1d5db !important; }
 }
+
+/* ── Comic chat ──────────────────────────────────────────────────────────
+   Everything derives from theme variables. color-mix() is used only for
+   decoration (halftone, hard shadows); browsers without it just skip those. */
+/* Ink resolves where the comic UI lives, so it always follows the active theme. */
+.comic-panel {
+  --comic-ink: var(--text-primary);
+}
+
+.comic-font {
+  font-family: "Comic Neue", "Comic Sans MS", "Chalkboard SE", ui-rounded, system-ui, sans-serif;
+}
+
+.comic-panel {
+  border: 3px solid var(--comic-ink);
+  border-radius: 16px 20px 14px 18px / 18px 14px 20px 16px;
+  background-color: var(--bg-panel);
+  background-image: radial-gradient(color-mix(in srgb, var(--comic-ink) 8%, transparent) 1px, transparent 1.6px);
+  background-size: 11px 11px;
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--comic-ink) 22%, transparent);
+}
+
+.comic-transcript {
+  container-type: inline-size;
+}
+
+/* One speaker turn: big character + a stack of bubbles. */
+.comic-turn {
+  --char-w: 72px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.comic-turn--right { flex-direction: row-reverse; }
+.comic-char { width: var(--char-w); flex-shrink: 0; }
+.comic-char__name {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.comic-stack {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  /* Line the first tail up with the character's mouth (≈54% down its width). */
+  padding-top: max(0px, calc(var(--char-w) * 0.54 - 27px));
+}
+.comic-turn--right .comic-stack { align-items: flex-end; }
+
+.comic-bubble {
+  position: relative;
+  max-width: 78%;
+  max-width: min(100%, 78cqw);
+  border: 2.5px solid var(--comic-ink);
+  border-radius: 26px 20px 24px 18px / 20px 24px 18px 22px;
+  padding: 8px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  box-shadow: 2px 3px 0 color-mix(in srgb, var(--comic-ink) 30%, transparent);
+}
+.comic-bubble__label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.comic-bubble--ai { background: var(--bg-bubble-ai); color: var(--text-bubble-ai); }
+.comic-bubble--user { background: var(--bg-bubble-user); color: var(--text-bubble-user); }
+.comic-bubble--interpret { background: var(--bg-interpret); color: var(--text-interpret); }
+.comic-bubble--plain { background: var(--bg-panel); color: var(--text-primary); }
+.comic-bubble--draft {
+  border-style: dashed;
+  font-style: italic;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+/* Tail: an SVG that overlaps the bubble's border so the outline flows into it. */
+.comic-tail {
+  position: absolute;
+  top: 12px;
+  width: 25px;
+  height: 20px;
+  overflow: visible;
+  pointer-events: none;
+}
+.comic-tail--left { left: -22.5px; }
+.comic-tail--right { right: -22.5px; transform: scaleX(-1); }
+.comic-bubble--draft .comic-tail path:last-child { stroke-dasharray: 4 3; }
+
+@media (min-width: 640px) {
+  .comic-turn { --char-w: 112px; gap: 20px; }
+  .comic-char__name { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .comic-bubble {
+    max-width: 60%;
+    max-width: min(100%, 58cqw);
+    padding: 10px 16px;
+    font-size: 15px;
+  }
+  .comic-bubble--wide { max-width: min(100%, 72cqw); }
+}
+
+/* Caption-style action tags under a bubble. */
+.comic-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.comic-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 2.5px solid var(--comic-ink);
+  border-radius: 4px 7px 5px 3px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-align: left;
+  text-transform: uppercase;
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--comic-ink) 40%, transparent);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+.comic-tag:hover:not(:disabled) { transform: translate(-1px, -1px) rotate(-1deg); }
+.comic-tag:active:not(:disabled) { transform: translate(1px, 1px); box-shadow: none; }
+.comic-tag:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.comic-tag:disabled { opacity: 0.5; cursor: not-allowed; }
+.comic-tag--primary { background: var(--bg-bubble-user); color: var(--text-bubble-user); }
+.comic-tag--secondary { background: var(--bg-panel); color: var(--text-primary); }
+
+/* Walkthrough: per-question result marker (icon + text) and progress pill. */
+.comic-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 2px solid var(--comic-ink);
+  border-radius: 999px;
+  padding: 1px 9px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.comic-marker__level { font-weight: 400; }
+.comic-progress {
+  border: 2.5px solid var(--text-primary);
+  border-radius: 6px 8px 5px 7px;
+  padding: 2px 10px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Pop-in for new bubbles. */
+@keyframes comicPop {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+.comic-pop { animation: comicPop 150ms ease-out both; transform-origin: top left; }
+.comic-turn--right .comic-pop { transform-origin: top right; }
+
+@keyframes comicThink {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.comic-think-dots circle { animation: comicThink 1.2s ease-in-out infinite; }
+.comic-think-dots circle:nth-child(2) { animation-delay: 0.2s; }
+.comic-think-dots circle:nth-child(3) { animation-delay: 0.4s; }
+
+.comic-typing { display: inline-flex; flex-shrink: 0; white-space: nowrap; }
+.comic-typing span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: comicThink 1s ease-in-out infinite;
+}
+.comic-typing span:nth-child(2) { animation-delay: 0.15s; }
+.comic-typing span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes comicTalk {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+.comic-talk-mouth {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: comicTalk 0.32s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comic-talk-mouth,
+  .comic-pop,
+  .comic-think-dots circle,
+  .comic-typing { display: inline-flex; flex-shrink: 0; white-space: nowrap; }
+.comic-typing span { animation: none; }
+  .comic-tag { transition: none; }
+}

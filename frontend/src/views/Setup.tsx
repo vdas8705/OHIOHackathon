@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Sparkles, Loader2, GitBranch, Link2 } from "lucide-react";
 import { Button, Panel, Badge } from "../components/ui";
 import { api } from "../api";
 import type { CreateSimulationInput, HealthInfo } from "../types";
 import type { ReactNode } from "react";
+import { VoiceStatusNote } from "../components/VoiceControls";
+import { useVoiceEngineState, voiceEngine } from "../speech/voiceEngine";
+import { loadVoiceSettings } from "../speech/voiceSettings";
 
 interface Props {
   onBack: () => void;
@@ -28,6 +31,14 @@ export default function Setup({ onBack, onCreated, health, picker }: Props) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [urlFetched, setUrlFetched] = useState(false);
+  const [voiceEnabled] = useState(() => loadVoiceSettings().enabled);
+  const voiceState = useVoiceEngineState();
+
+  // Download the interviewer voice while the user fills in the form, so it's
+  // ready before the first question.
+  useEffect(() => {
+    if (voiceEnabled) void voiceEngine.preload();
+  }, [voiceEnabled]);
 
   const update =
     (field: keyof CreateSimulationInput) =>
@@ -157,6 +168,9 @@ export default function Setup({ onBack, onCreated, health, picker }: Props) {
         Paste a job posting link and we'll pull everything automatically — or
         fill in the fields yourself.
       </p>
+      <div className="mt-3">
+        <VoiceStatusNote engine={voiceState} enabled={voiceEnabled} />
+      </div>
 
       {health?.demo_mode && (
         <div className="mt-4">

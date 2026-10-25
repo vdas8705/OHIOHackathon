@@ -5,6 +5,8 @@ import react from "@vitejs/plugin-react";
 // so there are no CORS surprises and the same relative paths work in prod.
 export default defineConfig({
   plugins: [react()],
+  // The Kokoro TTS worker dynamically imports ONNX runtime, which needs ES workers.
+  worker: { format: "es" },
   server: {
     port: 5173,
     proxy: {

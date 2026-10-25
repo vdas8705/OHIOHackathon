@@ -200,6 +200,37 @@ export interface HistorySummary {
 export interface HistoryDetail extends HistorySummary {
   report: PerformanceReport;
   conversation: { role: string; round_number: number; text: string }[];
+  walkthrough?: Walkthrough | null;
+}
+
+// Spoken results walkthrough (derived from the saved report).
+export type WalkthroughCorrectness = "correct" | "partly_correct" | "incorrect";
+
+export interface WalkthroughQuestion {
+  round_number: number;
+  correctness: WalkthroughCorrectness;
+  performance_level: string;
+  question: string;
+  spoken: string;
+}
+
+export interface WalkthroughFollowup {
+  round_number: number;
+  question: string;
+  answer: string;
+}
+
+export interface Walkthrough {
+  version: number;
+  generated_by: "llm" | "template";
+  viewed: boolean;
+  overall_score: number;
+  max_score: number;
+  intro: string;
+  questions: WalkthroughQuestion[];
+  wrap_up: string;
+  focus_points: string[];
+  followups: WalkthroughFollowup[];
 }
 
 export interface TrendPoint {

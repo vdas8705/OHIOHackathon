@@ -7,6 +7,7 @@ import {
   History,
   AlertCircle,
   Loader2,
+  Headphones,
 } from "lucide-react";
 import { Button } from "../components/ui";
 import ReportBody from "../components/ReportBody";
@@ -18,11 +19,13 @@ export default function Results({
   sessionId,
   onRestart,
   onViewHistory,
+  onWalkthrough,
   picker,
 }: {
   sessionId: string;
   onRestart: () => void;
   onViewHistory?: () => void;
+  onWalkthrough?: () => void;
   picker: ReactNode;
 }) {
   const [report, setReport] = useState<PerformanceReport | null>(null);
@@ -67,6 +70,11 @@ export default function Results({
         </div>
         <div className="flex gap-2">
           {picker}
+          {onWalkthrough && (
+            <Button variant="ghost" onClick={onWalkthrough} title="Hear a spoken, question-by-question walkthrough">
+              <Headphones className="h-4 w-4" /> Walk me through it
+            </Button>
+          )}
           {onViewHistory && (
             <Button variant="ghost" onClick={onViewHistory}>
               <History className="h-4 w-4" /> Past sessions

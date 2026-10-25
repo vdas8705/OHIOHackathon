@@ -164,3 +164,71 @@ export function planSegments(raw: string): SpeechSegment[] {
   });
   return segments;
 }
+
+// ---- Kokoro planning ----
+// Kokoro already has natural intonation, so only pace and pauses vary; pitch
+// is never touched. Commas are left to the model.
+
+export interface KokoroSegment {
+  text: string;
+  speed: number; // multiplier on the user's chosen speed
+  pauseAfterMs: number;
+}
+
+const KOKORO_MAX_CHARS = 280; // stay well under the model's token limit
+
+function chunkLongSentence(sentence: string): string[] {
+  if (sentence.length <= KOKORO_MAX_CHARS) return [sentence];
+  const chunks: string[] = [];
+  let current = "";
+  for (const clause of splitClauses(sentence).map((c) => c.text)) {
+    if (current && current.length + clause.length + 1 > KOKORO_MAX_CHARS) {
+      chunks.push(current);
+      current = clause;
+    } else {
+      current = current ? `${current} ${clause}` : clause;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
+
+export function planKokoroSegments(raw: string): KokoroSegment[] {
+  const text = cleanForSpeech(raw);
+  const segments: KokoroSegment[] = [];
+  let speedWalk = 0;
+
+  const paragraphs = text.split("\n\n");
+  paragraphs.forEach((para, pi) => {
+    const sentences = splitSentences(para);
+    sentences.forEach((sentence, si) => {
+      speedWalk = drift(speedWalk);
+      const isQuestion = /\?["'”’)\]]*$/.test(sentence);
+      const isEncouraging = ENCOURAGING.test(sentence) || /!["'”’)\]]*$/.test(sentence);
+      const isExplanation = !isEncouraging && wordCount(sentence) >= 16;
+
+      let speed = 1 + 0.05 * speedWalk;
+      if (isEncouraging) speed *= 1.05;
+      else if (isExplanation) speed *= 0.96;
+      speed = clamp(speed, 0.93, 1.08);
+
+      const lastSentence = si === sentences.length - 1;
+      const lastParagraph = pi === paragraphs.length - 1;
+      const pause = lastSentence
+        ? lastParagraph ? 0 : randomBetween(400, 500)
+        : isQuestion ? randomBetween(210, 250) : randomBetween(150, 230);
+
+      const chunks = chunkLongSentence(sentence);
+      chunks.forEach((chunk, ci) => {
+        segments.push({
+          text: chunk,
+          speed,
+          pauseAfterMs: ci === chunks.length - 1 ? pause : 120,
+        });
+      });
+    });
+  });
+  return segments;
+}

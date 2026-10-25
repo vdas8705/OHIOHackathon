@@ -12,11 +12,13 @@ import {
   GitBranch,
   RefreshCw,
   Printer,
+  Headphones,
 } from "lucide-react";
 import { Button, Panel, Badge, formatTime } from "../components/ui";
 import ReportBody from "../components/ReportBody";
 import { api } from "../api";
 import type { HistoryDetail, HistorySummary } from "../types";
+import { SavedWalkthrough } from "./Walkthrough";
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -148,11 +150,15 @@ export function PersistentHistoryList({
 export function PersistentSessionViewer({
   sessionId,
   picker,
+  userAvatarId,
+  onWalkthrough,
   onBack,
   onRestart,
 }: {
   sessionId: string;
   picker: ReactNode;
+  userAvatarId: number;
+  onWalkthrough: () => void;
   onBack: () => void;
   onRestart: () => void;
 }) {
@@ -197,6 +203,9 @@ export function PersistentSessionViewer({
           <Button variant="subtle" onClick={onBack}>
             <ArrowLeft className="h-4 w-4" /> Past sessions
           </Button>
+          <Button variant="ghost" onClick={onWalkthrough} title="Hear a spoken, question-by-question walkthrough">
+            <Headphones className="h-4 w-4" /> Walk me through it
+          </Button>
           <Button variant="ghost" onClick={() => window.print()}>
             <Printer className="h-4 w-4" /> Print
           </Button>
@@ -221,6 +230,19 @@ export function PersistentSessionViewer({
 
       {/* Full weighted report with radar, reused from the live results view */}
       <ReportBody report={detail.report} />
+
+      {/* Saved spoken walkthrough, if the user went through it */}
+      {detail.walkthrough?.viewed && (
+        <>
+          <h2 className="mt-8 text-lg font-bold">Results walkthrough</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            What the interviewer said when walking you through these results. Press Play to hear any part again.
+          </p>
+          <div className="mt-3">
+            <SavedWalkthrough walkthrough={detail.walkthrough} userAvatarId={userAvatarId} />
+          </div>
+        </>
+      )}
 
       {/* Conversation transcript */}
       <h2 className="mt-8 text-lg font-bold">Conversation</h2>

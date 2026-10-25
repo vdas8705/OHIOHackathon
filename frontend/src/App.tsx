@@ -4,6 +4,7 @@ import Setup from "./views/Setup";
 import Interview from "./views/Interview";
 import Results from "./views/Results";
 import ReviewView from "./views/ReviewView";
+import Walkthrough from "./views/Walkthrough";
 import { PersistentHistoryList, PersistentSessionViewer } from "./views/PersistentHistory";
 import { api } from "./api";
 import type { HealthInfo, SavedSession, SessionReview, SimulationState } from "./types";
@@ -19,7 +20,8 @@ type View =
   | "results"
   | "review"
   | "history"
-  | "pastSession";
+  | "pastSession"
+  | "walkthrough";
 
 const AVATAR_KEY = "branchpoint-avatar";
 
@@ -42,6 +44,15 @@ export default function App() {
   const { sessions, saveSession, updateReview } = useSessionHistory();
   const [viewingSession, setViewingSession] = useState<string | null>(null);
   const [userAvatarId, setUserAvatarId] = useState<number>(getSavedAvatar);
+  // Spoken results walkthrough: which session, whether to ask first, where to go after.
+  const [walkthrough, setWalkthrough] = useState<
+    { sessionId: string; offer: boolean; returnTo: View } | null
+  >(null);
+
+  const openWalkthrough = useCallback((sid: string, returnTo: View, offer = false) => {
+    setWalkthrough({ sessionId: sid, offer, returnTo });
+    setView("walkthrough");
+  }, []);
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
@@ -83,10 +94,15 @@ export default function App() {
           updateReview(id, review);
         }).catch(() => {});
       }
-      // Restored: show the weighted Results dashboard (radar + full report).
-      setView("results");
+      // After all five questions, offer the spoken walkthrough before the
+      // weighted Results dashboard (radar + full report); otherwise go straight there.
+      if (state.completion_status === "completed" && state.report_ready) {
+        openWalkthrough(id, "results", true);
+      } else {
+        setView("results");
+      }
     },
-    [saveSession, updateReview, sessions]
+    [saveSession, updateReview, sessions, openWalkthrough]
   );
 
   return (
@@ -106,7 +122,8 @@ export default function App() {
       {view === "results" && sessionId && (
         <Results sessionId={sessionId} picker={picker}
           onRestart={() => { setSessionId(null); setView("setup"); }}
-          onViewHistory={() => setView("history")} />
+          onViewHistory={() => setView("history")}
+          onWalkthrough={() => openWalkthrough(sessionId, "results")} />
       )}
       {view === "review" && sessionId && (
         <ReviewView sessionId={sessionId} picker={picker}
@@ -120,8 +137,20 @@ export default function App() {
       )}
       {view === "pastSession" && viewingSession && (
         <PersistentSessionViewer sessionId={viewingSession} picker={picker}
+          userAvatarId={userAvatarId}
+          onWalkthrough={() => openWalkthrough(viewingSession, "pastSession")}
           onBack={() => setView("history")}
           onRestart={() => { setSessionId(null); setView("setup"); }} />
+      )}
+      {view === "walkthrough" && walkthrough && (
+        <Walkthrough
+          key={walkthrough.sessionId + String(walkthrough.offer)}
+          sessionId={walkthrough.sessionId}
+          userAvatarId={userAvatarId}
+          picker={picker}
+          offer={walkthrough.offer}
+          onDone={() => setView(walkthrough.returnTo)}
+        />
       )}
     </div>
   );
