@@ -5,9 +5,11 @@ import {
   BarChart3,
   Clock,
   ShieldCheck,
+  History,
 } from "lucide-react";
 import { Button, Badge } from "../components/ui";
 import type { HealthInfo } from "../types";
+import type { ReactNode } from "react";
 
 const STEPS = [
   {
@@ -35,9 +37,13 @@ const STEPS = [
 export default function Landing({
   onStart,
   health,
+  picker,
+  onViewHistory,
 }: {
   onStart: () => void;
   health: HealthInfo | null;
+  picker: ReactNode;
+  onViewHistory: () => void;
 }) {
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -49,14 +55,20 @@ export default function Landing({
           </div>
           <span className="text-lg font-bold tracking-tight">BranchPoint</span>
         </div>
-        {health &&
-          (health.demo_mode ? (
-            <Badge tone="amber">Demo mode</Badge>
-          ) : (
-            <Badge tone="teal">
-              <ShieldCheck className="h-3.5 w-3.5" /> Live AI · {health.model}
-            </Badge>
-          ))}
+        <div className="flex items-center gap-3">
+          <Button variant="subtle" onClick={onViewHistory} className="gap-1.5 text-sm">
+            <History className="h-4 w-4" /> Past Sessions
+          </Button>
+          {picker}
+          {health &&
+            (health.demo_mode ? (
+              <Badge tone="amber">Demo mode</Badge>
+            ) : (
+              <Badge tone="teal">
+                <ShieldCheck className="h-3.5 w-3.5" /> Live AI · {health.model}
+              </Badge>
+            ))}
+        </div>
       </header>
 
       {/* Hero */}

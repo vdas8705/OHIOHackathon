@@ -10,6 +10,8 @@ import {
   MicOff,
   Loader2,
   AlertTriangle,
+  Bot,
+  User,
 } from "lucide-react";
 import { Button, Panel, Badge, formatTime } from "../components/ui";
 import {
@@ -23,7 +25,12 @@ import type { SimulationState } from "../types";
 
 interface Props {
   sessionId: string;
-  onComplete: () => void;
+  onComplete: (
+    sessionId: string,
+    bubbles: { id: string; role: string; text: string; round: number }[],
+    state: SimulationState
+  ) => void;
+  picker: React.ReactNode;
 }
 
 interface Bubble {
@@ -33,7 +40,7 @@ interface Bubble {
   round: number;
 }
 
-export default function Interview({ sessionId, onComplete }: Props) {
+export default function Interview({ sessionId, onComplete, picker }: Props) {
   const [state, setState] = useState<SimulationState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -143,7 +150,14 @@ export default function Interview({ sessionId, onComplete }: Props) {
     if (state && state.completion_status !== "in_progress" && state.report_ready) {
       stopSpeaking();
       rec.abort();
-      onComplete();
+      // Pass bubbles + final state to parent for session history
+      const savedBubbles = bubbles.map((b) => ({
+        id: b.id,
+        role: b.role,
+        text: b.text,
+        round: b.round,
+      }));
+      onComplete(sessionId, savedBubbles, state);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state?.completion_status, state?.report_ready]);
@@ -261,7 +275,13 @@ export default function Interview({ sessionId, onComplete }: Props) {
     try {
       const next = await api.finish(sessionId);
       setState(next);
-      onComplete();
+      const savedBubbles = bubbles.map((b) => ({
+        id: b.id,
+        role: b.role,
+        text: b.text,
+        round: b.round,
+      }));
+      onComplete(sessionId, savedBubbles, next);
     } catch (e) {
       setLoadError((e as Error).message);
       setProcessing(false);
@@ -310,6 +330,7 @@ export default function Interview({ sessionId, onComplete }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {picker}
           {state.is_demo && <Badge tone="amber">Demo mode</Badge>}
           <Badge tone="slate">
             Round {state.current_round} of {state.total_rounds}
@@ -341,16 +362,24 @@ export default function Interview({ sessionId, onComplete }: Props) {
       <Panel className="mt-5 flex-1 overflow-hidden">
         <div
           ref={transcriptRef}
-          className="scroll-slim h-[42vh] space-y-4 overflow-y-auto p-5 sm:h-[46vh]"
+          className="scroll-slim h-[42vh] space-y-2 overflow-y-auto p-5 sm:h-[46vh]"
         >
-          {bubbles.map((b) => (
-            <ChatBubble key={b.id} bubble={b} />
-          ))}
+          {bubbles.map((b, i) => {
+            const prev = bubbles[i - 1];
+            const sameGroup = (r: Bubble["role"]) =>
+              r === "interviewer" || r === "clarify_a";
+            const showAvatar =
+              !prev ||
+              (sameGroup(b.role) ? !sameGroup(prev.role) : sameGroup(prev.role) || prev.role !== b.role);
+            return <ChatBubble key={b.id} bubble={b} showAvatar={showAvatar} />;
+          })}
           {rec.interim && (
-            <div className="flex justify-end">
-              <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-dashed border-teal-accent/30 bg-teal-accent/5 px-4 py-2.5 text-sm italic text-slate-400">
+            <div className="flex items-end justify-end gap-2.5">
+              <div className="max-w-[75%] rounded-2xl rounded-br-sm border border-dashed border-teal-accent/30 bg-teal-accent/5 px-4 py-2.5 text-sm italic text-slate-400">
                 {rec.interim}
               </div>
+              {/* spacer to keep alignment consistent with avatar width */}
+              <div className="w-9 shrink-0" />
             </div>
           )}
         </div>
@@ -527,49 +556,137 @@ export default function Interview({ sessionId, onComplete }: Props) {
   );
 }
 
-function ChatBubble({ bubble }: { bubble: Bubble }) {
+// ── Avatar components ────────────────────────────────────────────────────────
+
+function InterviewerAvatar({ visible }: { visible: boolean }) {
+  return (
+    <div className="shrink-0 w-9 h-9" aria-label={visible ? "Assistant" : undefined}>
+      {visible && (
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-full"
+          style={{
+            background: "var(--avatar-ai-bg)",
+            boxShadow: "0 0 0 2px var(--avatar-ai-ring)",
+          }}
+        >
+          <Bot className="h-4.5 w-4.5" aria-hidden="true"
+            style={{ width: 18, height: 18, color: "var(--avatar-ai-icon)" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UserAvatar({ visible }: { visible: boolean }) {
+  return (
+    <div className="shrink-0 w-9 h-9" aria-label={visible ? "You" : undefined}>
+      {visible && (
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-full"
+          style={{
+            background: "var(--avatar-user-bg)",
+            boxShadow: "0 0 0 2px var(--avatar-user-ring)",
+          }}
+        >
+          <User className="h-4.5 w-4.5" aria-hidden="true"
+            style={{ width: 18, height: 18, color: "var(--avatar-user-icon)" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ChatBubble ────────────────────────────────────────────────────────────────
+
+function ChatBubble({ bubble, showAvatar }: { bubble: Bubble; showAvatar: boolean }) {
   if (bubble.role === "interviewer") {
     return (
-      <div className="flex animate-fadeInUp justify-start">
-        <div className="max-w-[85%]">
-          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-teal-soft">
-            Interviewer
-          </div>
-          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-navy-700/70 px-4 py-3 text-sm leading-relaxed text-slate-100">
+      <div className="flex animate-fadeInUp items-start gap-2.5">
+        <InterviewerAvatar visible={showAvatar} />
+        <div className="max-w-[78%]">
+          {showAvatar && (
+            <div className="mb-1.5 text-xs font-semibold" style={{ color: "var(--avatar-ai-icon)" }}>
+              Interviewer
+            </div>
+          )}
+          <div
+            className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border"
+            style={{
+              background: "var(--bg-bubble-ai)",
+              color: "var(--text-bubble-ai)",
+              borderColor: "var(--bg-bubble-border-ai)",
+            }}
+          >
             {bubble.text}
           </div>
         </div>
       </div>
     );
   }
+
   if (bubble.role === "candidate") {
     return (
-      <div className="flex animate-fadeInUp justify-end">
-        <div className="max-w-[85%]">
-          <div className="mb-1 text-right text-xs font-semibold uppercase tracking-wide text-slate-400">
-            You
-          </div>
-          <div className="rounded-2xl rounded-br-sm bg-teal-accent/90 px-4 py-3 text-sm leading-relaxed text-navy-900">
+      <div className="flex animate-fadeInUp items-start justify-end gap-2.5">
+        <div className="max-w-[78%]">
+          {showAvatar && (
+            <div className="mb-1.5 text-right text-xs font-semibold" style={{ color: "var(--avatar-user-icon)" }}>
+              You
+            </div>
+          )}
+          <div
+            className="rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-sm"
+            style={{
+              background: "var(--bg-bubble-user)",
+              color: "var(--text-bubble-user)",
+            }}
+          >
             {bubble.text}
           </div>
         </div>
+        <UserAvatar visible={showAvatar} />
       </div>
     );
   }
+
   if (bubble.role === "clarify_q") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-sm text-amber-100">
-          <span className="font-semibold">Clarifying: </span>
-          {bubble.text}
+      <div className="flex items-start justify-end gap-2.5">
+        <div className="max-w-[75%]">
+          {showAvatar && (
+            <div className="mb-1.5 text-right text-xs font-semibold text-amber-400">
+              You · clarifying
+            </div>
+          )}
+          <div className="rounded-2xl rounded-br-sm border border-amber-400/25 bg-amber-400/10 px-4 py-2.5 text-sm text-amber-100 shadow-sm">
+            {bubble.text}
+          </div>
         </div>
+        <UserAvatar visible={showAvatar} />
       </div>
     );
   }
+
+  // clarify_a
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-white/10 bg-white/5 px-4 py-2.5 text-sm italic text-slate-300">
-        {bubble.text}
+    <div className="flex items-start gap-2.5">
+      <InterviewerAvatar visible={showAvatar} />
+      <div className="max-w-[75%]">
+        {showAvatar && (
+          <div className="mb-1.5 text-xs font-semibold" style={{ color: "var(--avatar-ai-icon)" }}>
+            Interviewer · clarifying
+          </div>
+        )}
+        <div
+          className="rounded-2xl rounded-tl-sm border px-4 py-2.5 text-sm italic shadow-sm"
+          style={{
+            background: "var(--bg-bubble-ai)",
+            color: "var(--text-bubble-ai)",
+            borderColor: "var(--bg-bubble-border-ai)",
+            opacity: 0.85,
+          }}
+        >
+          {bubble.text}
+        </div>
       </div>
     </div>
   );

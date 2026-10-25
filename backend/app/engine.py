@@ -25,9 +25,11 @@ from .models import (
     EnvironmentState,
     InterviewerTurn,
     PerformanceReport,
+    QuestionReview,
     ResponseAnalysis,
     RoundReport,
     ScenarioBlueprint,
+    SessionReview,
     StateDelta,
 )
 
@@ -602,3 +604,105 @@ class Engine:
                 + (" [TIMED OUT]" if d.timed_out else "")
             )
         return "\n".join(parts)
+
+    # --------------------------- review --------------------------------- #
+    def generate_review(self, session: Session) -> SessionReview:
+        """Generate a per-question review using the LLM, with heuristic fallback."""
+        use_llm = (not session.is_demo) and self.llm.available and len(session.decision_history) > 0
+        if use_llm:
+            try:
+                data = self.llm.generate_review(session.blueprint, self._transcript(session))
+                return self._coerce_review(data, session)
+            except (LLMError, Exception):
+                pass
+        return self._heuristic_review(session)
+
+    def _coerce_review(self, data: dict, session: Session) -> SessionReview:
+        quality_map = {"correct": "correct", "partly_correct": "partly_correct", "incorrect": "incorrect"}
+        question_reviews = []
+        for d in session.decision_history:
+            # Find matching review from LLM data
+            qr_data = next(
+                (q for q in data.get("question_reviews", []) if q.get("round_number") == d.round_number),
+                {},
+            )
+            correctness = qr_data.get("correctness", "incorrect")
+            if correctness not in quality_map:
+                correctness = "incorrect"
+            question_reviews.append(QuestionReview(
+                round_number=d.round_number,
+                question=d.question,
+                user_answer=d.response or "(no answer provided)",
+                correctness=quality_map[correctness],
+                what_did_well=str(qr_data.get("what_did_well", "")),
+                what_missed=str(qr_data.get("what_missed", "")),
+                better_approach=str(qr_data.get("better_approach", "")),
+                explanation=str(qr_data.get("explanation", "")),
+            ))
+        return SessionReview(
+            score=int(data.get("score", sum(1 for q in question_reviews if q.correctness == "correct"))),
+            total=TOTAL_ROUNDS,
+            summary=str(data.get("summary", "")),
+            question_reviews=question_reviews,
+            tips=[str(t) for t in data.get("tips", [])][:3],
+            is_demo=session.is_demo,
+        )
+
+    def _heuristic_review(self, session: Session) -> SessionReview:
+        """Deterministic per-question review used in demo mode / fallback."""
+        quality_to_correctness = {"strong": "correct", "weak": "partly_correct", "incomplete": "incorrect"}
+        question_reviews = []
+        for d in session.decision_history:
+            q = d.analysis.quality if d.analysis else "incomplete"
+            correctness = quality_to_correctness.get(q, "incorrect")
+            if correctness == "correct":
+                did_well = "Your answer showed strong structured reasoning and addressed the key risks."
+                missed = ""
+                better = "Great job — keep this level of detail in future answers."
+                explain = "You demonstrated clear, hypothesis-driven thinking with appropriate validation steps."
+            elif correctness == "partly_correct":
+                did_well = "You engaged with the scenario and provided a partial response."
+                missed = "Your answer could benefit from more specific validation steps and explicit risk trade-offs."
+                better = "Lead with your recommendation, then briefly support it with the key risks and how you'd validate."
+                explain = "The response was on the right track but lacked the depth needed for a fully strong answer."
+            else:
+                did_well = "You attempted the question, which is a good start."
+                missed = "The response was too brief or missed the core reasoning needed."
+                better = "Take a moment to outline your approach: state the problem, your decision, and why."
+                explain = "More detail and structured reasoning would significantly improve this answer."
+            question_reviews.append(QuestionReview(
+                round_number=d.round_number,
+                question=d.question,
+                user_answer=d.response or "(no answer provided)",
+                correctness=correctness,
+                what_did_well=did_well,
+                what_missed=missed,
+                better_approach=better,
+                explanation=explain,
+            ))
+
+        score = sum(1 for q in question_reviews if q.correctness == "correct")
+        correct_count = score
+        partial_count = sum(1 for q in question_reviews if q.correctness == "partly_correct")
+        if correct_count >= 4:
+            summary = f"Excellent work! You got {correct_count} out of {TOTAL_ROUNDS} right. Your structured reasoning really came through."
+        elif correct_count >= 2:
+            summary = f"Good effort — {correct_count} strong and {partial_count} partial answers. With a bit more detail you'll nail the rest."
+        else:
+            summary = f"You completed all {TOTAL_ROUNDS} rounds, which takes initiative. Let's build on this with more structured practice."
+
+        tips = [
+            "Practice narrating a clear plan out loud in under 90 seconds.",
+            "State your recommendation first, then briefly justify it with risks and validation.",
+        ]
+        if correct_count < 3:
+            tips.append("Before answering, take a few seconds to identify the core trade-off in the scenario.")
+
+        return SessionReview(
+            score=score,
+            total=TOTAL_ROUNDS,
+            summary=summary,
+            question_reviews=question_reviews,
+            tips=tips,
+            is_demo=session.is_demo,
+        )

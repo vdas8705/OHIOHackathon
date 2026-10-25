@@ -183,6 +183,26 @@ class PerformanceReport(BaseModel):
     is_demo: bool = False
 
 
+class QuestionReview(BaseModel):
+    round_number: int
+    question: str
+    user_answer: str
+    correctness: Literal["correct", "partly_correct", "incorrect"]
+    what_did_well: str
+    what_missed: str
+    better_approach: str
+    explanation: str
+
+
+class SessionReview(BaseModel):
+    score: int  # number correct out of 5
+    total: int = TOTAL_ROUNDS
+    summary: str
+    question_reviews: list[QuestionReview]
+    tips: list[str]
+    is_demo: bool = False
+
+
 # --------------------------------------------------------------------------- #
 # API request / response contracts
 # --------------------------------------------------------------------------- #

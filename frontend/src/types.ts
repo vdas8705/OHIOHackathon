@@ -89,6 +89,40 @@ export interface FetchJobResponse {
   company_info: string;
 }
 
+export type Correctness = "correct" | "partly_correct" | "incorrect";
+
+export interface QuestionReview {
+  round_number: number;
+  question: string;
+  user_answer: string;
+  correctness: Correctness;
+  what_did_well: string;
+  what_missed: string;
+  better_approach: string;
+  explanation: string;
+}
+
+export interface SessionReview {
+  score: number;
+  total: number;
+  summary: string;
+  question_reviews: QuestionReview[];
+  tips: string[];
+  is_demo: boolean;
+}
+
+export interface SavedSession {
+  id: string;
+  company: string;
+  job_title: string;
+  completedAt: number; // epoch ms
+  score: number;
+  total: number;
+  status: string;
+  bubbles: { id: string; role: string; text: string; round: number }[];
+  review: SessionReview | null;
+}
+
 export interface DemoSample extends CreateSimulationInput {
   example_responses: Record<string, string>;
 }

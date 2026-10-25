@@ -5,6 +5,7 @@ import type {
   FetchJobResponse,
   HealthInfo,
   PerformanceReport,
+  SessionReview,
   SimulationState,
 } from "./types";
 
@@ -77,4 +78,7 @@ export const api = {
 
   report: (sessionId: string) =>
     request<PerformanceReport>(`/simulations/${sessionId}/report`),
+
+  review: (sessionId: string) =>
+    request<SessionReview>(`/simulations/${sessionId}/review`),
 };

@@ -20,8 +20,10 @@ from .models import (
     FetchJobRequest,
     FetchJobResponse,
     PublicScenario,
+    QuestionReview,
     RespondRequest,
     RespondResponse,
+    SessionReview,
     SimulationStateResponse,
 )
 
@@ -182,3 +184,11 @@ def report(session_id: str) -> dict:
     if session.final_report is None:
         raise HTTPException(status_code=409, detail="Report not ready")
     return session.final_report.model_dump()
+
+
+@app.get("/api/simulations/{session_id}/review", response_model=SessionReview)
+def review(session_id: str) -> SessionReview:
+    session = _require(session_id)
+    if session.final_report is None:
+        raise HTTPException(status_code=409, detail="Report not ready")
+    return engine.generate_review(session)
