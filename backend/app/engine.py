@@ -18,6 +18,7 @@ from .models import (
     MAX_CLARIFICATIONS_PER_ROUND,
     RESPONSE_SECONDS_PER_ROUND,
     TOTAL_ROUNDS,
+    QUESTION_TYPES,
     CategoryScore,
     CompletionStatus,
     ConversationEntry,
@@ -25,12 +26,18 @@ from .models import (
     EnvironmentState,
     InterviewerTurn,
     PerformanceReport,
+    PracticeRecommendation,
+    QuestionClassification,
+    QuestionPerformance,
     QuestionReview,
+    QuestionTypeStat,
     ResponseAnalysis,
     RoundReport,
     ScenarioBlueprint,
     SessionReview,
     StateDelta,
+    Weakness,
+    normalize_question_type,
 )
 
 _CATEGORY_MAX = {
@@ -66,6 +73,8 @@ class Session:
         self.environment = blueprint.initial_environment.clamped()
         self.decision_history: list[DecisionRecord] = []
         self.conversation_history: list[ConversationEntry] = []
+        # Per-round clarifying exchanges: {round_number: [(question, answer), ...]}
+        self.clarifications_log: dict[int, list[tuple[str, str]]] = {}
         self.elapsed_active_seconds = 0
         self.clarifications_this_round = 0
         self.started_at = datetime.now(timezone.utc)
@@ -114,10 +123,12 @@ class Session:
 class Engine:
     """Owns all sessions and drives the deterministic loop."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, store=None) -> None:
         self.settings = settings
         self.llm = LLMService(settings)
         self.sessions: dict[str, Session] = {}
+        # Optional persistent history store (SQLite). None disables persistence.
+        self.store = store
 
     @property
     def demo_mode(self) -> bool:
@@ -208,6 +219,7 @@ class Engine:
                 answer = demo.demo_clarification_answer(session.blueprint, question)
 
         session.clarifications_this_round += 1
+        session.clarifications_log.setdefault(round_number, []).append((question, answer))
         session.conversation_history.append(
             ConversationEntry(
                 role="clarification_q", round_number=round_number, text=question
@@ -259,6 +271,15 @@ class Engine:
         analysis, delta, consequence = self._analyze(session, round_number, question, response)
         env_after = session._apply_delta(delta)
 
+        # Classify the exact question that was asked (controlled vocabulary).
+        classification = self._classify(session, round_number, question)
+
+        # Pull any clarifications recorded this round into the decision record.
+        clarifications = [
+            {"question": q, "answer": a}
+            for (q, a) in session.clarifications_log.get(round_number, [])
+        ]
+
         session.decision_history.append(
             DecisionRecord(
                 round_number=round_number,
@@ -268,6 +289,8 @@ class Engine:
                 analysis=analysis,
                 consequence=consequence,
                 environment_after=env_after,
+                classification=classification,
+                clarifications=clarifications,
             )
         )
         session.completed_rounds = round_number
@@ -310,6 +333,57 @@ class Engine:
             )
         except (LLMError, Exception):
             return self._demo_analyze(session, round_number, response)
+
+    # ------------------------ classification ----------------------------- #
+    def _classify(
+        self, session: Session, round_number: int, question: str
+    ) -> QuestionClassification:
+        """Classify a question against the controlled taxonomy.
+
+        Demo mode uses predefined metadata. Live mode asks the LLM and
+        validates every returned type against QUESTION_TYPES.
+        """
+        if session.is_demo or not self.llm.available:
+            return self._demo_classify(round_number)
+        try:
+            data = self.llm.classify_question(question, list(QUESTION_TYPES))
+            return self._coerce_classification(data, round_number)
+        except (LLMError, Exception):
+            return self._demo_classify(round_number)
+
+    def _demo_classify(self, round_number: int) -> QuestionClassification:
+        meta = demo.DEMO_QUESTION_CLASSIFICATION.get(round_number)
+        if not meta:
+            return QuestionClassification(
+                primary_type="Analytical problem-solving",
+                secondary_types=[],
+                competencies=[],
+            )
+        return QuestionClassification(
+            primary_type=meta["primary_type"],
+            secondary_types=list(meta.get("secondary_types", [])),
+            competencies=list(meta.get("competencies", [])),
+        )
+
+    def _coerce_classification(
+        self, data: dict, round_number: int
+    ) -> QuestionClassification:
+        primary = normalize_question_type(str(data.get("primary_type", "")))
+        if primary is None:
+            # Fall back to the demo metadata's primary if the LLM gave garbage.
+            return self._demo_classify(round_number)
+        secondary_raw = data.get("secondary_types", []) or []
+        secondary: list[str] = []
+        for s in secondary_raw:
+            norm = normalize_question_type(str(s))
+            if norm and norm != primary and norm not in secondary:
+                secondary.append(norm)
+        competencies = [str(c) for c in (data.get("competencies", []) or [])][:4]
+        return QuestionClassification(
+            primary_type=primary,
+            secondary_types=secondary[:2],
+            competencies=competencies,
+        )
 
     def _demo_analyze(
         self, session: Session, round_number: int, response: str
@@ -386,6 +460,39 @@ class Engine:
         if session.final_report is not None:
             return
         session.final_report = self._build_report(session)
+        self._persist(session)
+
+    def _persist(self, session: Session) -> None:
+        """Save a completed session to the history store (best-effort)."""
+        if self.store is None or session.final_report is None:
+            return
+        try:
+            conversation = [
+                {
+                    "role": e.role,
+                    "round_number": e.round_number,
+                    "text": e.text,
+                }
+                for e in session.conversation_history
+            ]
+            self.store.save_session(
+                session_id=session.session_id,
+                company=session.company,
+                job_title=session.job_title,
+                job_description=session.job_description,
+                scenario_title=session.blueprint.scenario_title,
+                is_demo=session.is_demo,
+                completion_status=session.completion_status.value,
+                rounds_completed=len(session.decision_history),
+                active_seconds=session.elapsed_active_seconds,
+                overall_score=session.final_report.overall_score,
+                schema_version=session.final_report.schema_version,
+                report=session.final_report.model_dump(),
+                conversation=conversation,
+            )
+        except Exception:
+            # Persistence must never break the live interview flow.
+            pass
 
     # ------------------------- evaluation -------------------------------- #
     def _build_report(self, session: Session) -> PerformanceReport:
@@ -424,22 +531,52 @@ class Engine:
         overall = sum(c.score for c in categories)
         overall = max(0, min(100, overall))
 
-        round_reports = [
-            RoundReport(
-                round_number=d.round_number,
-                question=d.question,
-                response=d.response or "(no answer provided)",
-                consequence=d.consequence,
-                analysis=(
-                    d.analysis.supporting_reasoning
-                    or f"Response classified as '{d.analysis.quality}'."
-                    if d.analysis
-                    else ""
-                ),
-                timed_out=d.timed_out,
+        # Per-question performance indicators (for weakness detection only).
+        question_performance = self._build_question_performance(session)
+        perf_by_round = {qp.round_number: qp for qp in question_performance}
+
+        round_reports = []
+        for d in session.decision_history:
+            quality = d.analysis.quality if d.analysis else "incomplete"
+            level_map = {
+                "strong": "Strong",
+                "weak": "Developing",
+                "incomplete": "Needs Improvement",
+            }
+            level = level_map.get(quality, "Developing")
+            if d.timed_out and not (d.response or "").strip():
+                level = "Not attempted"
+            cls = d.classification
+            fb = self._round_feedback(session, d, quality)
+            round_reports.append(
+                RoundReport(
+                    round_number=d.round_number,
+                    question=d.question,
+                    response=d.response or "(no answer provided)",
+                    consequence=d.consequence,
+                    analysis=(
+                        d.analysis.supporting_reasoning
+                        if d.analysis and d.analysis.supporting_reasoning
+                        else ""
+                    ),
+                    timed_out=d.timed_out,
+                    question_type=cls.primary_type if cls else "",
+                    secondary_types=cls.secondary_types if cls else [],
+                    competencies=cls.competencies if cls else [],
+                    what_went_well=fb["what_went_well"],
+                    what_was_missed=fb["what_was_missed"],
+                    stronger_approach=fb["stronger_approach"],
+                    why_it_mattered=fb["why_it_mattered"],
+                    performance_level=level,
+                    clarifications=list(d.clarifications),
+                )
             )
-            for d in session.decision_history
-        ]
+
+        question_type_stats = self._aggregate_question_types(question_performance)
+        weaknesses = self._detect_weaknesses(
+            session, categories, question_performance, question_type_stats
+        )
+        recommendations = self._build_recommendations(weaknesses, question_type_stats)
 
         return PerformanceReport(
             overall_score=overall,
@@ -456,7 +593,213 @@ class Engine:
             overall_recommendation=recommendation,
             round_reports=round_reports,
             is_demo=session.is_demo,
+            question_performance=question_performance,
+            question_type_stats=question_type_stats,
+            weaknesses=weaknesses,
+            practice_recommendations=recommendations,
         )
+
+    # ----------------- per-question + weakness analysis ------------------ #
+    def _round_feedback(self, session, d, quality: str) -> dict[str, str]:
+        """Grounded, non-binary feedback for a round (demo table + LLM analysis)."""
+        table = demo.DEMO_ROUND_FEEDBACK.get(d.round_number, {}).get(quality)
+        if table:
+            return dict(table)
+        # Generic fallback keyed on quality.
+        if quality == "strong":
+            return {
+                "what_went_well": "Your answer was structured and addressed the core of the question.",
+                "what_was_missed": "",
+                "stronger_approach": "Keep this level of detail and name how you'd validate your approach.",
+                "why_it_mattered": "A clear, well-reasoned answer is what the question is designed to elicit.",
+            }
+        if quality == "weak":
+            return {
+                "what_went_well": "You engaged with the question and offered a direction.",
+                "what_was_missed": "More specific reasoning, trade-offs, or validation steps.",
+                "stronger_approach": "Lead with your decision, then support it with reasoning and risks.",
+                "why_it_mattered": "Depth of reasoning is what separates a developing answer from a strong one.",
+            }
+        return {
+            "what_went_well": "You attempted the question.",
+            "what_was_missed": "The core reasoning and a concrete approach.",
+            "stronger_approach": "State the problem, your decision, and why — briefly but completely.",
+            "why_it_mattered": "A fuller answer lets the interviewer assess your thinking.",
+        }
+
+    _QUALITY_INDICATOR = {"strong": 85, "weak": 55, "incomplete": 25}
+
+    def _build_question_performance(self, session) -> list[QuestionPerformance]:
+        """Normalized 0-100 per-question indicators (weakness detection only)."""
+        results: list[QuestionPerformance] = []
+        use_llm = (not session.is_demo) and self.llm.available
+        for d in session.decision_history:
+            cls = d.classification
+            qtype = cls.primary_type if cls else "Analytical problem-solving"
+            quality = d.analysis.quality if d.analysis else "incomplete"
+            indicator = self._QUALITY_INDICATOR.get(quality, 25)
+            evidence: list[str] = []
+            mistakes: list[str] = []
+            advice = ""
+            if use_llm and (d.response or "").strip():
+                try:
+                    data = self.llm.analyze_per_question(
+                        d.question, qtype, d.response, session.blueprint.ground_truth_facts
+                    )
+                    indicator = max(0, min(100, int(data.get("indicator", indicator))))
+                    evidence = [str(e) for e in data.get("evidence", [])][:3]
+                    mistakes = [str(m) for m in data.get("mistakes", [])][:3]
+                    advice = str(data.get("improvement_advice", ""))
+                except (LLMError, Exception):
+                    pass
+            if not evidence:
+                evidence = (
+                    [f"Round {d.round_number}: {(d.response or '(no answer)')[:160]}"]
+                    if d.response
+                    else ["No substantive response recorded."]
+                )
+            if not advice:
+                advice = self._round_feedback(session, d, quality)["stronger_approach"]
+            results.append(
+                QuestionPerformance(
+                    question_id=f"{session.session_id[:8]}-r{d.round_number}",
+                    round_number=d.round_number,
+                    question=d.question,
+                    question_type=qtype,
+                    secondary_types=cls.secondary_types if cls else [],
+                    competencies=cls.competencies if cls else [],
+                    indicator=indicator,
+                    evidence=evidence,
+                    mistakes=mistakes,
+                    improvement_advice=advice,
+                )
+            )
+        return results
+
+    def _aggregate_question_types(
+        self, qp: list[QuestionPerformance]
+    ) -> list[QuestionTypeStat]:
+        """Aggregate by PRIMARY question type only (no double-counting)."""
+        buckets: dict[str, list[QuestionPerformance]] = {}
+        for q in qp:
+            buckets.setdefault(q.question_type, []).append(q)
+        stats: list[QuestionTypeStat] = []
+        for qtype, items in buckets.items():
+            avg = int(round(sum(i.indicator for i in items) / len(items)))
+            mistakes: list[str] = []
+            for i in items:
+                for m in i.mistakes:
+                    if m and m not in mistakes:
+                        mistakes.append(m)
+            suggestion = items[0].improvement_advice if items else ""
+            stats.append(
+                QuestionTypeStat(
+                    question_type=qtype,
+                    count=len(items),
+                    average_indicator=avg,
+                    common_mistakes=mistakes[:3],
+                    suggested_improvement=suggestion,
+                )
+            )
+        stats.sort(key=lambda s: s.average_indicator)
+        return stats
+
+    def _detect_weaknesses(
+        self, session, categories, qp, qstats
+    ) -> list[Weakness]:
+        """Single-session weakness detection.
+
+        A category/type is only an 'observed' weakness with enough evidence;
+        a single low question is a 'potential' observation, not a recurring
+        weakness.
+        """
+        weaknesses: list[Weakness] = []
+
+        # Competency-based weaknesses: low percentage of the max.
+        for c in categories:
+            pct = (c.score / c.max_score) * 100 if c.max_score else 0
+            if pct < 55:
+                evidence = c.evidence[:2]
+                weaknesses.append(
+                    Weakness(
+                        label=c.name,
+                        kind="observed" if session.decision_history else "potential",
+                        category=c.name,
+                        evidence=evidence,
+                        detail=(
+                            f"Scored {c.score}/{c.max_score} in {c.name.lower()}. "
+                            + (c.improvements[0] if c.improvements else "")
+                        ),
+                    )
+                )
+
+        # Question-type observations.
+        for s in qstats:
+            if s.average_indicator < 55:
+                # One question of a type -> 'potential' observation, not recurring.
+                kind = "observed" if s.count >= 2 else "potential"
+                detail = (
+                    f"Average performance {s.average_indicator}/100 across {s.count} "
+                    f"{'questions' if s.count != 1 else 'question'} of this type."
+                )
+                if s.count < 2:
+                    detail += (
+                        " Only one question of this type was asked, so treat this as an "
+                        "observation rather than a recurring weakness."
+                    )
+                weaknesses.append(
+                    Weakness(
+                        label=s.question_type,
+                        kind=kind,
+                        category=s.question_type,
+                        evidence=s.common_mistakes[:2],
+                        detail=detail,
+                    )
+                )
+        return weaknesses
+
+    def _build_recommendations(
+        self, weaknesses, qstats
+    ) -> list[PracticeRecommendation]:
+        recs: list[PracticeRecommendation] = []
+        type_advice = {
+            "Technical troubleshooting": "Practice root-cause analysis scenarios that require collecting evidence, forming hypotheses, and validating potential fixes before acting.",
+            "System design and architecture": "Practice whiteboard design drills: state requirements, enumerate components, and justify trade-offs between options.",
+            "Analytical problem-solving": "Practice breaking ambiguous problems into sub-parts and reasoning from evidence to a conclusion.",
+            "Decision-making and prioritization": "Practice scenarios that force an explicit decision under constraints, stating the trade-off you accepted.",
+            "Risk assessment": "Practice naming the top risks of each option and how you'd mitigate or validate them.",
+            "Adaptability and unexpected complications": "Practice scenarios where new, contradictory information arrives mid-way and you must revise your plan.",
+            "Communication and stakeholder management": "Practice delivering a crisp recommendation-first update tailored to a specific stakeholder.",
+            "Behavioral and teamwork": "Practice structured STAR-style stories that show collaboration and conflict resolution.",
+            "Ethical and professional judgment": "Practice scenarios with competing pressures where you must defend a principled decision.",
+            "Role-specific technical knowledge": "Review the core technical fundamentals for this role and practice explaining them aloud.",
+        }
+        # Prioritize observed weaknesses, then potential ones; cap at 3.
+        ordered = sorted(weaknesses, key=lambda w: 0 if w.kind == "observed" else 1)
+        for w in ordered[:3]:
+            rec_text = type_advice.get(
+                w.label,
+                f"Practice targeted scenarios that exercise {w.label.lower()} and review your "
+                "reasoning afterward.",
+            )
+            evidence = w.evidence[0] if w.evidence else w.detail
+            recs.append(
+                PracticeRecommendation(
+                    weakness=w.label, evidence=evidence, recommendation=rec_text
+                )
+            )
+        if not recs:
+            recs.append(
+                PracticeRecommendation(
+                    weakness="General practice",
+                    evidence="Your performance was fairly balanced across competencies.",
+                    recommendation=(
+                        "Keep practicing full situational interviews, focusing on pairing each "
+                        "decision with its validation and the risk you accepted."
+                    ),
+                )
+            )
+        return recs
 
     def _coerce_categories(self, raw: list) -> list[CategoryScore]:
         by_name: dict[str, CategoryScore] = {}

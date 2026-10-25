@@ -233,3 +233,139 @@ DEMO_EXAMPLE_RESPONSES: dict[int, str] = {
         "report readiness with data."
     ),
 }
+
+
+# Per-round question classification for the demo scenario (controlled vocabulary).
+DEMO_QUESTION_CLASSIFICATION: dict[int, dict] = {
+    1: {
+        "primary_type": "Technical troubleshooting",
+        "secondary_types": ["Analytical problem-solving", "Risk assessment"],
+        "competencies": ["Technical reasoning", "Decision-making and risk assessment"],
+    },
+    2: {
+        "primary_type": "Analytical problem-solving",
+        "secondary_types": ["Technical troubleshooting"],
+        "competencies": ["Technical reasoning", "Adaptability"],
+    },
+    3: {
+        "primary_type": "Risk assessment",
+        "secondary_types": ["Adaptability and unexpected complications", "Decision-making and prioritization"],
+        "competencies": ["Decision-making and risk assessment", "Adaptability"],
+    },
+    4: {
+        "primary_type": "Communication and stakeholder management",
+        "secondary_types": ["Decision-making and prioritization"],
+        "competencies": ["Communication and explanation", "Decision-making and risk assessment"],
+    },
+    5: {
+        "primary_type": "Decision-making and prioritization",
+        "secondary_types": ["Risk assessment", "Communication and stakeholder management"],
+        "competencies": ["Technical reasoning", "Communication and explanation"],
+    },
+}
+
+
+# Deterministic per-round, per-quality feedback for the demo scenario. Grounded,
+# non-binary (matches the Strong / Developing / Needs Improvement framing).
+DEMO_ROUND_FEEDBACK: dict[int, dict[str, dict[str, str]]] = {
+    1: {
+        "strong": {
+            "what_went_well": "You controlled variables and compared failing vs. passing nodes before guessing a cause.",
+            "what_was_missed": "",
+            "stronger_approach": "Keep this structure and state what data would confirm or rule out each factor.",
+            "why_it_mattered": "A disciplined first step prevents chasing the wrong lead under deadline pressure.",
+        },
+        "weak": {
+            "what_went_well": "You engaged with the problem and proposed a direction.",
+            "what_was_missed": "A systematic plan to isolate variables and reproduce the failure.",
+            "stronger_approach": "Reproduce the fault, log per-component temps, and compare against passing nodes.",
+            "why_it_mattered": "Without structure, the investigation can waste limited schedule on the wrong hypothesis.",
+        },
+        "incomplete": {
+            "what_went_well": "You attempted the question.",
+            "what_was_missed": "A concrete investigation plan and how you'd gather evidence.",
+            "stronger_approach": "Start by reproducing the issue and collecting baseline measurements.",
+            "why_it_mattered": "The opening approach sets the direction for the whole investigation.",
+        },
+    },
+    2: {
+        "strong": {
+            "what_went_well": "You tied the lot and BIOS evidence to testable hypotheses and changed one variable at a time.",
+            "what_was_missed": "",
+            "stronger_approach": "Name the expected result of each test so a negative is as informative as a positive.",
+            "why_it_mattered": "Isolating one variable at a time is how you actually find the root cause.",
+        },
+        "weak": {
+            "what_went_well": "You named at least one plausible hypothesis.",
+            "what_was_missed": "A clear way to test each hypothesis without confounding variables.",
+            "stronger_approach": "Revert BIOS on one node and re-apply TIM on another — isolate each factor.",
+            "why_it_mattered": "Testing two changes at once leaves you unable to attribute the result.",
+        },
+        "incomplete": {
+            "what_went_well": "You responded to the new evidence.",
+            "what_was_missed": "Specific hypotheses connected to the lot and BIOS clues.",
+            "stronger_approach": "Form hypotheses from the evidence and design a test for each.",
+            "why_it_mattered": "The new evidence is the key to narrowing the cause.",
+        },
+    },
+    3: {
+        "strong": {
+            "what_went_well": "You validated the sensors against an independent reference before trusting the data.",
+            "what_was_missed": "",
+            "stronger_approach": "Quantify the schedule-vs-risk trade-off explicitly for the rework decision.",
+            "why_it_mattered": "Trusting a possibly-faulty sensor could send the whole fix in the wrong direction.",
+        },
+        "weak": {
+            "what_went_well": "You acknowledged the conflicting data.",
+            "what_was_missed": "A plan to verify which measurement is trustworthy before acting.",
+            "stronger_approach": "Check onboard sensors against the thermal camera and a calibrated probe.",
+            "why_it_mattered": "Acting on unverified data risks a costly wrong decision under deadline.",
+        },
+        "incomplete": {
+            "what_went_well": "You attempted to address the complication.",
+            "what_was_missed": "How you'd resolve the sensor conflict and weigh the schedule cost.",
+            "stronger_approach": "Validate the data first, then weigh rework cost against reliability risk.",
+            "why_it_mattered": "Unexpected complications test whether you adapt your plan to new facts.",
+        },
+    },
+    4: {
+        "strong": {
+            "what_went_well": "You gave a concise, risk-weighted recommendation tailored to each stakeholder.",
+            "what_was_missed": "",
+            "stronger_approach": "Add confidence level and the one data point that would change your recommendation.",
+            "why_it_mattered": "Leaders act on a clear recommendation plus its risk, not raw findings.",
+        },
+        "weak": {
+            "what_went_well": "You attempted to communicate an update.",
+            "what_was_missed": "A clear recommendation and the trade-offs behind it.",
+            "stronger_approach": "Lead with your recommendation, then support it with risk and timeline.",
+            "why_it_mattered": "Stakeholders need a decision they can act on, not just status.",
+        },
+        "incomplete": {
+            "what_went_well": "You recognized stakeholders are involved.",
+            "what_was_missed": "The actual recommendation and how you'd frame it.",
+            "stronger_approach": "State your recommended option and why, with the key risk named.",
+            "why_it_mattered": "Communication under pressure is a core part of the role.",
+        },
+    },
+    5: {
+        "strong": {
+            "what_went_well": "You proposed a credible fix with a validation plan and named residual risks.",
+            "what_was_missed": "",
+            "stronger_approach": "Specify pass/fail criteria for the re-validation so readiness is objective.",
+            "why_it_mattered": "Closing out requires proof the fix works, not just a plausible theory.",
+        },
+        "weak": {
+            "what_went_well": "You proposed a resolution.",
+            "what_was_missed": "A concrete validation plan and explicit remaining risks.",
+            "stronger_approach": "Pair the fix with a re-test plan and state what risk remains after it.",
+            "why_it_mattered": "A fix without validation can't establish launch readiness.",
+        },
+        "incomplete": {
+            "what_went_well": "You attempted a wrap-up.",
+            "what_was_missed": "The resolution, validation plan, and residual risk.",
+            "stronger_approach": "Describe the fix, how you'll confirm it, and the risk that remains.",
+            "why_it_mattered": "The final round is where you demonstrate you can land a problem.",
+        },
+    },
+}

@@ -142,6 +142,94 @@ class DecisionRecord(BaseModel):
     analysis: Optional[ResponseAnalysis] = None
     consequence: str = ""
     environment_after: Optional[EnvironmentState] = None
+    classification: Optional["QuestionClassification"] = None
+    # Clarifying exchanges within this round: [{"question":..,"answer":..}]
+    clarifications: list[dict] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Question taxonomy (controlled vocabulary for classification)
+# --------------------------------------------------------------------------- #
+QUESTION_TYPES: tuple[str, ...] = (
+    "Technical troubleshooting",
+    "System design and architecture",
+    "Analytical problem-solving",
+    "Decision-making and prioritization",
+    "Risk assessment",
+    "Adaptability and unexpected complications",
+    "Communication and stakeholder management",
+    "Behavioral and teamwork",
+    "Ethical and professional judgment",
+    "Role-specific technical knowledge",
+)
+
+
+def normalize_question_type(value: str) -> Optional[str]:
+    """Match a (possibly messy) LLM label to the controlled vocabulary."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    for canonical in QUESTION_TYPES:
+        if v == canonical.lower():
+            return canonical
+    # Loose contains-match as a fallback.
+    for canonical in QUESTION_TYPES:
+        key = canonical.lower().split(" and ")[0]
+        if key in v or v in canonical.lower():
+            return canonical
+    return None
+
+
+class QuestionClassification(BaseModel):
+    """Controlled classification of a single interview question."""
+    primary_type: str
+    secondary_types: list[str] = Field(default_factory=list)
+    competencies: list[str] = Field(default_factory=list)
+
+
+class QuestionPerformance(BaseModel):
+    """Per-question performance indicator used ONLY for weakness detection.
+
+    This is NOT part of the weighted 100-point score. `indicator` is a
+    normalized 0-100 value describing how well this specific answer handled
+    the dimensions relevant to its question type.
+    """
+    question_id: str
+    round_number: int
+    question: str
+    question_type: str
+    secondary_types: list[str] = Field(default_factory=list)
+    competencies: list[str] = Field(default_factory=list)
+    indicator: int = Field(ge=0, le=100)
+    evidence: list[str] = Field(default_factory=list)
+    mistakes: list[str] = Field(default_factory=list)
+    improvement_advice: str = ""
+
+
+class QuestionTypeStat(BaseModel):
+    """Aggregated performance for one primary question type in a session."""
+    question_type: str
+    count: int
+    average_indicator: int
+    common_mistakes: list[str] = Field(default_factory=list)
+    suggested_improvement: str = ""
+
+
+class Weakness(BaseModel):
+    """A weakness or observation detected within a single session."""
+    label: str
+    # "observed" = supported by evidence; "potential" = possible but not
+    # confidently established (e.g. only one question of this type).
+    kind: Literal["observed", "potential"] = "observed"
+    category: str = ""  # competency or question type it relates to
+    evidence: list[str] = Field(default_factory=list)
+    detail: str = ""
+
+
+class PracticeRecommendation(BaseModel):
+    weakness: str
+    evidence: str = ""
+    recommendation: str
 
 
 # --------------------------------------------------------------------------- #
@@ -163,9 +251,24 @@ class RoundReport(BaseModel):
     consequence: str
     analysis: str
     timed_out: bool = False
+    # Classification + grounded, non-binary feedback for this round.
+    question_type: str = ""
+    secondary_types: list[str] = Field(default_factory=list)
+    competencies: list[str] = Field(default_factory=list)
+    what_went_well: str = ""
+    what_was_missed: str = ""
+    stronger_approach: str = ""
+    why_it_mattered: str = ""
+    # Qualitative, non-binary label.
+    performance_level: Literal["Strong", "Developing", "Needs Improvement", "Not attempted"] = (
+        "Developing"
+    )
+    clarifications: list[dict] = Field(default_factory=list)
 
 
 class PerformanceReport(BaseModel):
+    # Schema version lets the frontend render legacy reports safely.
+    schema_version: int = 2
     overall_score: int
     max_score: int = 100
     completion_status: CompletionStatus
@@ -181,6 +284,11 @@ class PerformanceReport(BaseModel):
     overall_recommendation: str
     round_reports: list[RoundReport]
     is_demo: bool = False
+    # --- new: classification, weakness detection, recommendations ---
+    question_performance: list[QuestionPerformance] = Field(default_factory=list)
+    question_type_stats: list[QuestionTypeStat] = Field(default_factory=list)
+    weaknesses: list[Weakness] = Field(default_factory=list)
+    practice_recommendations: list[PracticeRecommendation] = Field(default_factory=list)
 
 
 class QuestionReview(BaseModel):
@@ -283,3 +391,7 @@ class ClarifyResponse(BaseModel):
 
 class RespondResponse(BaseModel):
     state: SimulationStateResponse
+
+
+# Resolve forward references (DecisionRecord -> QuestionClassification).
+DecisionRecord.model_rebuild()

@@ -28,9 +28,12 @@ from .models import (
     SessionReview,
     SimulationStateResponse,
 )
+from .storage import HistoryStore
+from .trends import compute_trends
 
 settings = get_settings()
-engine = Engine(settings)
+store = HistoryStore()
+engine = Engine(settings, store=store)
 
 app = FastAPI(title="BranchPoint API", version="1.0.0")
 
@@ -217,3 +220,27 @@ def review(session_id: str) -> SessionReview:
     if session.final_report is None:
         raise HTTPException(status_code=409, detail="Report not ready")
     return engine.generate_review(session)
+
+
+# --------------------------------------------------------------------------- #
+# Persistent session history (LOCAL, SINGLE-USER MVP — see README/storage.py).
+# --------------------------------------------------------------------------- #
+@app.get("/api/history")
+def history_list() -> dict:
+    """List completed sessions saved to disk (survives backend restarts)."""
+    return {"sessions": store.list_sessions()}
+
+
+@app.get("/api/history/{session_id}")
+def history_detail(session_id: str) -> dict:
+    """Read-only historical record. Does NOT rerun the AI."""
+    data = store.get_session(session_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Saved session not found")
+    return data
+
+
+@app.get("/api/history-trends")
+def history_trends() -> dict:
+    """Cross-session trend analysis computed only from stored results."""
+    return compute_trends(store.get_all_reports())

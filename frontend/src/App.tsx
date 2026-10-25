@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import Landing from "./views/Landing";
 import Setup from "./views/Setup";
 import Interview from "./views/Interview";
+import Results from "./views/Results";
 import ReviewView from "./views/ReviewView";
-import { SessionHistoryList, SessionViewer } from "./views/SessionHistory";
+import { PersistentHistoryList, PersistentSessionViewer } from "./views/PersistentHistory";
 import { api } from "./api";
 import type { HealthInfo, SavedSession, SessionReview, SimulationState } from "./types";
 import { useTheme } from "./useTheme";
@@ -11,7 +12,14 @@ import { ThemePicker } from "./components/ThemePicker";
 import { useSessionHistory } from "./useSessionHistory";
 import { NUM_AVATARS } from "./components/PersonAvatars";
 
-type View = "landing" | "setup" | "interview" | "review" | "history" | "pastSession";
+type View =
+  | "landing"
+  | "setup"
+  | "interview"
+  | "results"
+  | "review"
+  | "history"
+  | "pastSession";
 
 const AVATAR_KEY = "branchpoint-avatar";
 
@@ -32,7 +40,7 @@ export default function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const { themeId, selectTheme, themes } = useTheme();
   const { sessions, saveSession, updateReview } = useSessionHistory();
-  const [viewingSession, setViewingSession] = useState<SavedSession | null>(null);
+  const [viewingSession, setViewingSession] = useState<string | null>(null);
   const [userAvatarId, setUserAvatarId] = useState<number>(getSavedAvatar);
 
   useEffect(() => {
@@ -57,6 +65,8 @@ export default function App() {
   const handleComplete = useCallback(
     (id: string, bubbles: SavedSession["bubbles"], state: SimulationState) => {
       setSessionId(id);
+      // The backend persists the full report to SQLite on finish. We also keep
+      // a lightweight local copy so the legacy ReviewView still works offline.
       if (state.completion_status === "completed" && state.report_ready) {
         const saved: SavedSession = {
           id, company: state.company, job_title: state.job_title,
@@ -73,7 +83,8 @@ export default function App() {
           updateReview(id, review);
         }).catch(() => {});
       }
-      setView("review");
+      // Restored: show the weighted Results dashboard (radar + full report).
+      setView("results");
     },
     [saveSession, updateReview, sessions]
   );
@@ -92,18 +103,23 @@ export default function App() {
         <Interview sessionId={sessionId} userAvatarId={userAvatarId}
           onComplete={(id, bubbles, state) => handleComplete(id, bubbles, state)} picker={picker} />
       )}
+      {view === "results" && sessionId && (
+        <Results sessionId={sessionId} picker={picker}
+          onRestart={() => { setSessionId(null); setView("setup"); }}
+          onViewHistory={() => setView("history")} />
+      )}
       {view === "review" && sessionId && (
         <ReviewView sessionId={sessionId} picker={picker}
           onRestart={() => { setSessionId(null); setView("setup"); }}
           onViewHistory={() => setView("history")} />
       )}
       {view === "history" && (
-        <SessionHistoryList sessions={sessions} picker={picker}
-          onBack={() => setView(sessionId ? "review" : "landing")}
-          onOpen={(s) => { setViewingSession(s); setView("pastSession"); }} />
+        <PersistentHistoryList picker={picker}
+          onBack={() => setView(sessionId ? "results" : "landing")}
+          onOpen={(sid) => { setViewingSession(sid); setView("pastSession"); }} />
       )}
       {view === "pastSession" && viewingSession && (
-        <SessionViewer session={viewingSession} picker={picker}
+        <PersistentSessionViewer sessionId={viewingSession} picker={picker}
           onBack={() => setView("history")}
           onRestart={() => { setSessionId(null); setView("setup"); }} />
       )}

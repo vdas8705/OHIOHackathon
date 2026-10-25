@@ -4,6 +4,9 @@ import type {
   DemoSample,
   FetchJobResponse,
   HealthInfo,
+  HistoryDetail,
+  HistorySummary,
+  HistoryTrends,
   InterpretResponse,
   PerformanceReport,
   SessionReview,
@@ -88,4 +91,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ round_number, response }),
     }),
+
+  // --- Persistent history (backend SQLite) ---
+  historyList: () =>
+    request<{ sessions: HistorySummary[] }>("/history").then((r) => r.sessions),
+
+  historyDetail: (sessionId: string) =>
+    request<HistoryDetail>(`/history/${sessionId}`),
+
+  historyTrends: () => request<HistoryTrends>("/history-trends"),
 };

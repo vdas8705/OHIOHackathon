@@ -158,9 +158,33 @@ invalid output in live mode, so a live demo stays reliable even if the model mis
 | POST   | `/api/simulations/{id}/respond`        | Submit a round response; advances the simulation.  |
 | POST   | `/api/simulations/{id}/clarify`        | Ask a clarifying question (does not advance round).|
 | POST   | `/api/simulations/{id}/finish`         | End early and generate a partial report.           |
-| GET    | `/api/simulations/{id}/report`         | Fetch the performance report.                      |
+| GET    | `/api/simulations/{id}/report`         | Fetch the weighted 100-point performance report.   |
+| GET    | `/api/simulations/{id}/review`         | Per-question tutor-style review (legacy view).     |
+| GET    | `/api/history`                         | List saved sessions (persisted to SQLite).         |
+| GET    | `/api/history/{id}`                    | Read-only saved report + transcript (no AI re-run).|
+| GET    | `/api/history-trends`                  | Cross-session trends from stored results.          |
 
 Interactive docs are available at `http://127.0.0.1:8000/docs`.
+
+### Scoring, classification, and weakness detection
+
+- **Weighted score (restored).** The overall score is out of 100, computed by backend code as
+  the sum of five competency scores: Technical reasoning (30), Decision-making and risk
+  assessment (25), Adaptability (20), Communication and explanation (15), Clarifying questions
+  and information gathering (10). The results dashboard shows a Recharts radar of these five
+  dimensions normalized to a percentage of their maximum, with the raw point values alongside.
+  Round feedback is qualitative (Strong / Developing / Needs Improvement), not correct/incorrect.
+- **Question classification.** Every question is classified into a controlled taxonomy (ten
+  primary types) with optional secondary types. Live mode asks the LLM and validates every
+  returned label against the allowed list; demo mode uses predefined per-round metadata.
+- **Per-question indicator.** A separate 0–100 indicator is computed per question for weakness
+  detection only. It never affects the weighted 100-point score.
+- **Weakness detection.** Single-session analysis distinguishes *observed* weaknesses (supported
+  by evidence) from *potential* observations (e.g. only one question of a type). Cross-session
+  trends require at least three scored questions of a type across two or more sessions before
+  calling something a recurring weakness, and aggregate by primary type only (no double-counting
+  secondary labels). Trends are computed only from real stored data; with fewer than two sessions
+  the UI explicitly says there isn't enough data yet.
 
 ---
 
@@ -178,6 +202,18 @@ clarifications not incrementing the round, invalid LLM deltas being clamped, cat
 summing to the overall, duplicate-submission rejection, reports referencing real responses,
 support for non-default job descriptions, the text fallback, and accurate early-termination
 reports.
+
+The `test_scoring_and_history.py` suite additionally covers the restored weighted scoring
+(scores out of 100, correct 30/25/20/15/10 weights, categories summing to the total), removal of
+binary correct/incorrect labels, question classification validated against the approved taxonomy,
+per-question indicators kept separate from the weighted score, weakness detection using real data
+(a single poor answer is a *potential* observation, not a recurring weakness), aggregation by
+primary type only, all questions/responses/clarifications stored correctly, persistence surviving
+a simulated restart, reopening saved sessions, cross-session trends requiring at least two
+sessions, legacy reports handled safely, and demo/live schema compatibility. Live-model behavior
+(real LLM scenario generation, classification, and evaluation) can't be tested without an API key
+and is exercised via the deterministic demo/fallback paths; the structure and validation around
+LLM output are tested, the live model output quality is not.
 
 Type-check / build the frontend:
 
@@ -202,8 +238,13 @@ cd frontend && npm run build
 
 ## Known limitations
 
-- **Session storage is in-memory.** Restarting the backend clears active sessions. This is
-  intentional for the MVP; swap in JSON or a database for persistence.
+- **Active sessions are in memory; completed sessions are persisted.** A session in progress
+  lives in memory, but once a session finishes (completed, timed out, or ended early) its full
+  report and transcript are written to SQLite (`backend/branchpoint.db`) and survive restarts.
+- **History is a LOCAL, SINGLE-USER feature.** There is no authentication. The `/api/history*`
+  endpoints are not safe for a shared, multi-user deployment — anyone who can reach the backend
+  can read all saved sessions. Treat history as a single-user local tool. To change the DB
+  location, set the `BRANCHPOINT_DB` environment variable.
 - **Website URL is informational only.** No live web retrieval is performed for the MVP.
 - **Browser speech varies.** Quality and availability of TTS voices and recognition depend on the
   browser/OS. Chrome/Edge give the most reliable experience.

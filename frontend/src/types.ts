@@ -54,9 +54,54 @@ export interface RoundReport {
   consequence: string;
   analysis: string;
   timed_out: boolean;
+  question_type?: string;
+  secondary_types?: string[];
+  competencies?: string[];
+  what_went_well?: string;
+  what_was_missed?: string;
+  stronger_approach?: string;
+  why_it_mattered?: string;
+  performance_level?: "Strong" | "Developing" | "Needs Improvement" | "Not attempted";
+  clarifications?: { question: string; answer: string }[];
+}
+
+export interface QuestionPerformance {
+  question_id: string;
+  round_number: number;
+  question: string;
+  question_type: string;
+  secondary_types: string[];
+  competencies: string[];
+  indicator: number;
+  evidence: string[];
+  mistakes: string[];
+  improvement_advice: string;
+}
+
+export interface QuestionTypeStat {
+  question_type: string;
+  count: number;
+  average_indicator: number;
+  common_mistakes: string[];
+  suggested_improvement: string;
+}
+
+export interface Weakness {
+  label: string;
+  kind: "observed" | "potential";
+  category: string;
+  evidence: string[];
+  detail: string;
+}
+
+export interface PracticeRecommendation {
+  weakness: string;
+  evidence: string;
+  recommendation: string;
 }
 
 export interface PerformanceReport {
+  schema_version?: number;
   overall_score: number;
   max_score: number;
   completion_status: CompletionStatus;
@@ -72,6 +117,10 @@ export interface PerformanceReport {
   overall_recommendation: string;
   round_reports: RoundReport[];
   is_demo: boolean;
+  question_performance?: QuestionPerformance[];
+  question_type_stats?: QuestionTypeStat[];
+  weaknesses?: Weakness[];
+  practice_recommendations?: PracticeRecommendation[];
 }
 
 export interface CreateSimulationInput {
@@ -131,6 +180,57 @@ export interface SavedSession {
 
 export interface DemoSample extends CreateSimulationInput {
   example_responses: Record<string, string>;
+}
+
+// --- Persistent history (backend SQLite) ---
+export interface HistorySummary {
+  session_id: string;
+  company: string;
+  job_title: string;
+  scenario_title: string;
+  is_demo: boolean;
+  completion_status: string;
+  rounds_completed: number;
+  active_seconds: number;
+  overall_score: number | null;
+  schema_version: number;
+  created_at: string; // ISO timestamp
+}
+
+export interface HistoryDetail extends HistorySummary {
+  report: PerformanceReport;
+  conversation: { role: string; round_number: number; text: string }[];
+}
+
+export interface TrendPoint {
+  created_at: string;
+  score?: number;
+  value?: number;
+}
+
+export interface RecurringWeakness {
+  question_type: string;
+  average_indicator: number;
+  questions_counted: number;
+  sessions_counted: number;
+  detail: string;
+}
+
+export interface CompetencyTrend {
+  competency: string;
+  direction: "improving" | "declining";
+  delta: number;
+  detail: string;
+}
+
+export interface HistoryTrends {
+  has_enough_data: boolean;
+  completed_sessions: number;
+  message: string;
+  overall_score_series: TrendPoint[];
+  competency_series: Record<string, TrendPoint[]>;
+  recurring_weaknesses: RecurringWeakness[];
+  improvements: CompetencyTrend[];
 }
 
 export interface HealthInfo {
