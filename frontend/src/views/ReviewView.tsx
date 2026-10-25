@@ -25,9 +25,9 @@ const CORRECTNESS_META: Record<
   Correctness,
   { icon: typeof CheckCircle2; label: string; color: string; bg: string }
 > = {
-  correct: { icon: CheckCircle2, label: "Correct", color: "#4ade80", bg: "rgba(74,222,128,0.1)" },
-  partly_correct: { icon: AlertCircle, label: "Partly correct", color: "#fbbf24", bg: "rgba(251,191,36,0.1)" },
-  incorrect: { icon: XCircle, label: "Incorrect", color: "#f87171", bg: "rgba(248,113,113,0.1)" },
+  correct: { icon: CheckCircle2, label: "Correct", color: "var(--badge-text)", bg: "var(--badge-bg)" },
+  partly_correct: { icon: AlertCircle, label: "Partly correct", color: "var(--warn-text)", bg: "var(--warn-bg)" },
+  incorrect: { icon: XCircle, label: "Incorrect", color: "var(--warn-max-bg)", bg: "color-mix(in srgb, var(--warn-max-bg) 12%, transparent)" },
 };
 
 export default function ReviewView({ sessionId, picker, onRestart, onViewHistory }: Props) {
@@ -204,14 +204,14 @@ function QuestionCard({ qr }: { qr: QuestionReview }) {
           <ReviewField
             label="What you did well"
             value={qr.what_did_well}
-            icon={<CheckCircle2 className="h-3.5 w-3.5" style={{ color: "#4ade80" }} />}
+            icon={<CheckCircle2 className="h-3.5 w-3.5" style={{ color: "var(--badge-text)" }} />}
           />
         )}
         {qr.what_missed && (
           <ReviewField
             label="What you missed"
             value={qr.what_missed}
-            icon={<AlertCircle className="h-3.5 w-3.5" style={{ color: "#fbbf24" }} />}
+            icon={<AlertCircle className="h-3.5 w-3.5" style={{ color: "var(--warn-text)" }} />}
           />
         )}
         {qr.better_approach && (

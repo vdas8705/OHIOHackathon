@@ -66,7 +66,7 @@ export default function Results({
       <header className="no-print flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <GitBranch className="h-5 w-5 text-teal-accent" />
-          <span className="font-bold">BranchPoint · Performance Report</span>
+          <span className="font-bold">Simul AI · Performance Report</span>
         </div>
         <div className="flex gap-2">
           {picker}

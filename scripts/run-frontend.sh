@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the BranchPoint React/Vite frontend.
+# Start the Simul AI React/Vite frontend.
 set -euo pipefail
 
 # Resolve the repo root from this script's own location, independent of where

@@ -1,1 +1,1 @@
-"""BranchPoint backend package."""
+"""Simul AI backend package."""

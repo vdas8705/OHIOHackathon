@@ -53,7 +53,7 @@ export default function Landing({
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-accent/15 ring-1 ring-teal-accent/30">
             <GitBranch className="h-5 w-5 text-teal-accent" />
           </div>
-          <span className="text-lg font-bold tracking-tight">BranchPoint</span>
+          <span className="text-lg font-bold tracking-tight">Simul AI</span>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="subtle" onClick={onViewHistory} className="gap-1.5 text-sm">
@@ -79,7 +79,7 @@ export default function Landing({
           <span className="text-teal-accent">before it happens.</span>
         </h1>
         <p className="mt-6 max-w-2xl text-lg text-slate-300">
-          BranchPoint drops you into a realistic, role-specific professional
+          Simul AI drops you into a realistic, role-specific professional
           scenario. You make decisions out loud, face the consequences, and
           adapt across five rounds — then get a detailed performance report.
         </p>
@@ -122,7 +122,7 @@ export default function Landing({
       </section>
 
       <footer className="mt-24 border-t border-white/10 pt-6 text-center text-xs text-slate-500">
-        BranchPoint is a practice tool. Reports reflect demonstrated practice
+        Simul AI is a practice tool. Reports reflect demonstrated practice
         performance and are not a prediction of hiring outcomes.
       </footer>
     </div>

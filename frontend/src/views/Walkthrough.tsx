@@ -29,6 +29,8 @@ import type { Walkthrough as WalkthroughData, WalkthroughCorrectness } from "../
 
 const OFFER_TEXT =
   "Nice work, you finished all five questions! Want me to walk you through how you did before you see your results?";
+const LOAD_FAILED_TEXT =
+  "I couldn't put the walkthrough together just now, but your full results are ready.";
 
 // ── Result marker: icon + text, never color alone ───────────────────────────
 
@@ -185,6 +187,15 @@ export default function Walkthrough({
     add({ id: "yes", speaker: "user", text: "Yes, walk me through it." });
     setPhase("loading");
   }
+
+  // ---- couldn't build the script: say so, not just show it ----
+  const failSpokenRef = useRef(false);
+  useEffect(() => {
+    if (!loadFailed || script || phase === "offer" || failSpokenRef.current) return;
+    failSpokenRef.current = true;
+    say(LOAD_FAILED_TEXT);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadFailed, script, phase]);
 
   // ---- start once the script is ready ----
   useEffect(() => {
@@ -352,7 +363,7 @@ export default function Walkthrough({
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <GitBranch className="h-5 w-5 text-teal-accent" />
-          <span className="font-bold">BranchPoint · Results walkthrough</span>
+          <span className="font-bold">Simul AI · Results walkthrough</span>
         </div>
         <div className="flex items-center gap-2">
           {picker}
@@ -412,7 +423,7 @@ export default function Walkthrough({
             <SpeakerTurn speaker="assistant" userAvatarId={userAvatarId}>
               <div className="comic-bubble comic-bubble--ai">
                 <BubbleTail side="left" fill="var(--bg-bubble-ai)" />
-                I couldn't put the walkthrough together just now, but your full results are ready.
+                {LOAD_FAILED_TEXT}
                 <div className="comic-tags mt-2">
                   <button ref={primaryRef} className="comic-tag comic-tag--primary" onClick={finish}>
                     <ArrowRight className="h-4 w-4" aria-hidden="true" /> Show my results
@@ -448,8 +459,7 @@ export default function Walkthrough({
             }}
             maxLength={1000}
             placeholder="For example: what would a strong answer have started with?"
-            className="mt-2 min-h-[64px] w-full resize-y rounded-xl border px-3 py-2 text-[15px] focus:outline-none focus-visible:ring-2"
-            style={{ background: "var(--bg-panel)", borderColor: "var(--bg-panel-border)", color: "var(--text-primary)" }}
+            className="mt-2 min-h-[64px] w-full resize-y rounded-xl border px-3 py-2 text-[15px] focus:outline-none"
           />
           <div className="comic-tags mt-2 justify-end">
             <button type="button" className="comic-tag comic-tag--secondary" onClick={() => setPhase("question")}>

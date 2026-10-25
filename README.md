@@ -1,14 +1,14 @@
-# BranchPoint
+# Simul AI
 
 **Experience the interview before it happens.**
 
-BranchPoint is a voice-first, AI-powered adaptive interview simulation. You paste a real job
-description, and BranchPoint generates a realistic, role-specific professional scenario. You
+Simul AI is a voice-first, AI-powered adaptive interview simulation. You paste a real job
+description, and Simul AI generates a realistic, role-specific professional scenario. You
 then work through **five connected, timed rounds** — speaking your answers aloud — while the AI
 interviewer introduces consequences and new complications based on your decisions. At the end
 you get a detailed, evidence-backed performance report out of 100.
 
-Unlike a generic chatbot or a trivia-style mock interviewer, BranchPoint runs a single evolving
+Unlike a generic chatbot or a trivia-style mock interviewer, Simul AI runs a single evolving
 scenario where your choices shape what happens next, then grades the demonstrated behavior.
 
 ---
@@ -107,7 +107,7 @@ configuration is needed in development.
 
 ## Environment variables
 
-BranchPoint runs **without any API key** in a clearly labeled **demo mode**. To enable live AI,
+Simul AI runs **without any API key** in a clearly labeled **demo mode**. To enable live AI,
 copy `.env.example` to `backend/.env` and fill in the values:
 
 | Variable             | Required | Default                       | Purpose                                             |
@@ -131,7 +131,7 @@ through backend routes.
 
 ## Demo mode
 
-When no API key is configured, BranchPoint uses a built-in, deterministic scenario — a **Cloud
+When no API key is configured, Simul AI uses a built-in, deterministic scenario — a **Cloud
 Hardware Development Engineer** facing a thermal anomaly during server validation — with:
 
 - A full five-round narrative
@@ -286,7 +286,7 @@ cd frontend && npm run build
 
 ## Definition of done — status
 
-A user can open BranchPoint, enter a company/title/job description, start an AI-generated,
+A user can open Simul AI, enter a company/title/job description, start an AI-generated,
 job-specific scenario, answer five connected timed situational questions by voice or text,
 experience plausible consequences, reach a deterministic end, and receive a detailed,
 evidence-backed report out of 100 with a round-by-round review. Verified end-to-end in demo mode;

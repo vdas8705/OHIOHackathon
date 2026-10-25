@@ -158,7 +158,7 @@ export default function Setup({ onBack, onCreated, health, picker }: Props) {
           {picker}
           <div className="flex items-center gap-2">
             <GitBranch className="h-5 w-5 text-teal-accent" />
-            <span className="font-bold">BranchPoint</span>
+            <span className="font-bold">Simul AI</span>
           </div>
         </div>
       </div>

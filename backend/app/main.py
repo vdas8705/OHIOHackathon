@@ -1,4 +1,4 @@
-"""FastAPI application exposing the BranchPoint simulation API."""
+"""FastAPI application exposing the Simul AI simulation API."""
 from __future__ import annotations
 
 import os
@@ -47,7 +47,7 @@ settings = get_settings()
 store = HistoryStore()
 engine = Engine(settings, store=store)
 
-app = FastAPI(title="BranchPoint API", version="1.0.0")
+app = FastAPI(title="Simul AI API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,

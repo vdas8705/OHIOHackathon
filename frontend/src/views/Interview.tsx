@@ -285,6 +285,7 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
         { id: `cand-${round}`, role: "candidate", text, round },
         { id: `interp-${round}`, role: "interpretation", text: res.interpretation, round },
       ]);
+      speak(res.interpretation);
     } catch (e) {
       // Fallback: skip interpretation, go straight to grading
       setBubbles((b) => [
@@ -299,11 +300,13 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
   }
 
   async function confirmAndSubmit() {
+    stopSpeaking();
     setInterpretation(null);
     await submitForGrading(pendingAnswer, false);
   }
 
   async function requestClarification() {
+    stopSpeaking();
     setClarifyingMore(true);
     setExtraText("");
     setInterpretation(null);
@@ -328,6 +331,7 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
         { id: `cand-cl-${round}-${newCount}`, role: "candidate", text: `(Clarification) ${extraText.trim()}`, round },
         { id: `interp-${round}-${newCount}`, role: "interpretation", text: res.interpretation, round },
       ]);
+      speak(res.interpretation);
     } catch {
       // If interpret fails on clarification, just submit what we have
       await submitForGrading(combined, false);
@@ -577,11 +581,6 @@ export default function Interview({ sessionId, userAvatarId, onComplete, picker 
             onChange={(e) => setExtraText(e.target.value)}
             placeholder="Add any clarification or additional details…"
             className="min-h-[60px] w-full resize-y rounded-xl border px-4 py-3 text-sm focus:outline-none"
-            style={{
-              background: "var(--bg-panel)",
-              borderColor: "var(--bg-panel-border)",
-              color: "var(--text-primary)",
-            }}
           />
           <div className="mt-2 flex justify-end gap-2">
             <Button variant="subtle" onClick={() => { setClarifyingMore(false); setInterpretation(null); }}>

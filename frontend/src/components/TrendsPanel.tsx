@@ -51,22 +51,22 @@ export default function TrendsPanel({ trends }: { trends: HistoryTrends }) {
         </div>
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={series} margin={{ top: 12, right: 16, left: -16, bottom: 0 }}>
-            <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-            <YAxis domain={[0, 100]} tick={{ fill: "#475569", fontSize: 10 }} />
+            <XAxis dataKey="label" tick={{ fill: "var(--text-secondary)", fontSize: 11 }} />
+            <YAxis domain={[0, 100]} tick={{ fill: "var(--text-secondary)", fontSize: 10 }} />
             <Tooltip
               contentStyle={{
-                background: "#0f1626",
-                border: "1px solid rgba(255,255,255,0.1)",
+                background: "var(--bg-panel)",
+                border: "1px solid var(--bg-panel-border)",
                 borderRadius: 12,
-                color: "#e5e7eb",
+                color: "var(--text-primary)",
               }}
             />
             <Line
               type="monotone"
               dataKey="score"
-              stroke="#2dd4bf"
+              stroke="var(--accent)"
               strokeWidth={2.5}
-              dot={{ r: 4, fill: "#2dd4bf" }}
+              dot={{ r: 4, fill: "var(--accent)" }}
             />
           </LineChart>
         </ResponsiveContainer>

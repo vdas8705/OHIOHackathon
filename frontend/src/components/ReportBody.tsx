@@ -191,29 +191,29 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
         <Panel className="print-light p-5">
           <ResponsiveContainer width="100%" height={280}>
             <RadarChart data={chartData} outerRadius="72%">
-              <PolarGrid stroke="rgba(148,163,184,0.25)" />
+              <PolarGrid stroke="var(--bg-panel-border)" />
               <PolarAngleAxis
                 dataKey="category"
-                tick={{ fill: "#94a3b8", fontSize: 12 }}
+                tick={{ fill: "var(--text-secondary)", fontSize: 12 }}
               />
               <PolarRadiusAxis
                 domain={[0, 100]}
-                tick={{ fill: "#475569", fontSize: 10 }}
+                tick={{ fill: "var(--text-secondary)", fontSize: 10 }}
                 axisLine={false}
               />
               <Radar
                 dataKey="value"
-                stroke="#2dd4bf"
-                fill="#2dd4bf"
+                stroke="var(--accent)"
+                fill="var(--accent)"
                 fillOpacity={0.35}
               />
             </RadarChart>
           </ResponsiveContainer>
-          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-3">
+          <div className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-x-4 gap-y-1 text-xs text-slate-400">
             {(report.categories ?? []).map((c) => (
-              <div key={c.name} className="flex items-center justify-between">
-                <span className="truncate">{radarLabel(c.name)}</span>
-                <span className="flex items-center gap-1 font-semibold text-slate-300">
+              <div key={c.name} className="flex min-w-0 items-center justify-between gap-2">
+                <span className="min-w-0 truncate">{radarLabel(c.name)}</span>
+                <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-300">
                   {c.score}/{c.max_score}
                   {(c.overtime_deduction ?? 0) > 0 && <OvertimeChip points={c.overtime_deduction!} />}
                 </span>
@@ -386,13 +386,13 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
                 <XAxis
                   type="number"
                   domain={[0, 100]}
-                  tick={{ fill: "#475569", fontSize: 10 }}
+                  tick={{ fill: "var(--text-secondary)", fontSize: 10 }}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={180}
-                  tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                 />
                 <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={16}>
                   {stats.map((s, i) => (
@@ -400,10 +400,10 @@ export default function ReportBody({ report }: { report: PerformanceReport }) {
                       key={i}
                       fill={
                         s.average_indicator >= 70
-                          ? "#2dd4bf"
+                          ? "var(--accent)"
                           : s.average_indicator >= 50
-                          ? "#fbbf24"
-                          : "#fb7185"
+                          ? "var(--warn-strong-bg)"
+                          : "var(--warn-max-bg)"
                       }
                     />
                   ))}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start BOTH the BranchPoint backend and frontend together.
+# Start BOTH the Simul AI backend and frontend together.
 # Press Ctrl+C once to stop both.
 set -euo pipefail
 
@@ -58,7 +58,7 @@ PIDS+=($!)
 
 echo ""
 echo "============================================================"
-echo "  BranchPoint is starting."
+echo "  Simul AI is starting."
 echo "  Open the app at:  http://localhost:5173"
 echo "  Backend API at:   http://127.0.0.1:8000/docs"
 echo "  Press Ctrl+C to stop both."

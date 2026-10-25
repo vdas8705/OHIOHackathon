@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the BranchPoint FastAPI backend.
+# Start the Simul AI FastAPI backend.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
