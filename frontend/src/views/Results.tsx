@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Radar,
   RadarChart,
@@ -37,9 +38,11 @@ const STATUS_META: Record<
 export default function Results({
   sessionId,
   onRestart,
+  picker,
 }: {
   sessionId: string;
   onRestart: () => void;
+  picker: ReactNode;
 }) {
   const [report, setReport] = useState<PerformanceReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +93,7 @@ export default function Results({
           <span className="font-bold">BranchPoint · Performance Report</span>
         </div>
         <div className="flex gap-2">
+          {picker}
           <Button variant="ghost" onClick={() => window.print()}>
             <Printer className="h-4 w-4" /> Print
           </Button>

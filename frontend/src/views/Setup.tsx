@@ -3,11 +3,13 @@ import { ArrowLeft, Sparkles, Loader2, GitBranch, Link2 } from "lucide-react";
 import { Button, Panel, Badge } from "../components/ui";
 import { api } from "../api";
 import type { CreateSimulationInput, HealthInfo } from "../types";
+import type { ReactNode } from "react";
 
 interface Props {
   onBack: () => void;
   onCreated: (sessionId: string) => void;
   health: HealthInfo | null;
+  picker: ReactNode;
 }
 
 const EMPTY: CreateSimulationInput = {
@@ -18,7 +20,7 @@ const EMPTY: CreateSimulationInput = {
   website_url: "",
 };
 
-export default function Setup({ onBack, onCreated, health }: Props) {
+export default function Setup({ onBack, onCreated, health, picker }: Props) {
   const [form, setForm] = useState<CreateSimulationInput>(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -141,9 +143,12 @@ export default function Setup({ onBack, onCreated, health }: Props) {
         <Button variant="subtle" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-5 w-5 text-teal-accent" />
-          <span className="font-bold">BranchPoint</span>
+        <div className="flex items-center gap-3">
+          {picker}
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-5 w-5 text-teal-accent" />
+            <span className="font-bold">BranchPoint</span>
+          </div>
         </div>
       </div>
 
