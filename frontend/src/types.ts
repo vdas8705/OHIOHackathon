@@ -183,6 +183,12 @@ export interface DemoSample extends CreateSimulationInput {
 }
 
 // --- Persistent history (backend SQLite) ---
+export type SessionOrigin =
+  | "user_demo"
+  | "user_live"
+  | "test_fixture"
+  | "unknown";
+
 export interface HistorySummary {
   session_id: string;
   company: string;
@@ -195,6 +201,7 @@ export interface HistorySummary {
   overall_score: number | null;
   schema_version: number;
   created_at: string; // ISO timestamp
+  origin: SessionOrigin;
 }
 
 export interface HistoryDetail extends HistorySummary {
